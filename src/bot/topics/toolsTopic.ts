@@ -2,6 +2,27 @@ import TelegramBot, { InlineKeyboardButton } from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { SessionData, updateSession, clearSession } from '../services/sessionManager';
 import { botUsername } from '../botInstance';
+import { sendToolsDashboard } from './topicManager';
+
+const activeTimeouts = new Map<number, NodeJS.Timeout>();
+
+function setAutoBackTimeout(messageId: number, callback: () => void) {
+    if (activeTimeouts.has(messageId)) {
+        clearTimeout(activeTimeouts.get(messageId)!);
+    }
+    const timeout = setTimeout(() => {
+        activeTimeouts.delete(messageId);
+        callback();
+    }, 60000);
+    activeTimeouts.set(messageId, timeout);
+}
+
+function clearAutoBackTimeout(messageId: number) {
+    if (activeTimeouts.has(messageId)) {
+        clearTimeout(activeTimeouts.get(messageId)!);
+        activeTimeouts.delete(messageId);
+    }
+}
 
 export async function handleToolsCommand(
     bot: TelegramBot,
@@ -259,6 +280,8 @@ export async function handleToolsCallback(
     const userId = query.from.id;
     if (!chatId || !messageId) return false;
 
+    clearAutoBackTimeout(messageId);
+
     const replyOptions: TelegramBot.SendMessageOptions = {};
     if (topicId) replyOptions.message_thread_id = topicId;
 
@@ -269,9 +292,24 @@ export async function handleToolsCallback(
         return true;
     }
 
-    if (data === 'tools_list') {
-        bot.deleteMessage(chatId, messageId).catch(() => { });
+    if (data === 'tools_list_new') {
         await sendToolsList(bot, chatId, undefined, replyOptions);
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data === 'tools_dashboard') {
+        if (chatId < 0 && messageId) {
+            bot.deleteMessage(chatId, messageId).catch(() => { });
+        } else {
+            await sendToolsDashboard(bot, chatId, topicId || 0, userRole, replyOptions, messageId);
+        }
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data === 'tools_list') {
+        await sendToolsList(bot, chatId, messageId, replyOptions);
         bot.answerCallbackQuery(query.id);
         return true;
     }
@@ -281,8 +319,7 @@ export async function handleToolsCallback(
             bot.answerCallbackQuery(query.id, { text: '❌ Chỉ Admin mới có quyền.', show_alert: true });
             return true;
         }
-        bot.deleteMessage(chatId, messageId).catch(() => { });
-        await sendToolCategoriesList(bot, chatId);
+        await sendToolCategoriesList(bot, chatId, messageId, replyOptions);
         bot.answerCallbackQuery(query.id);
         return true;
     }
@@ -292,16 +329,14 @@ export async function handleToolsCallback(
             bot.answerCallbackQuery(query.id, { text: '❌ Chỉ Admin mới có quyền.', show_alert: true });
             return true;
         }
-        bot.deleteMessage(chatId, messageId).catch(() => { });
-        await sendToolsList(bot, chatId, undefined, replyOptions);
+        await sendToolsList(bot, chatId, messageId, replyOptions);
         bot.answerCallbackQuery(query.id);
         return true;
     }
 
     if (data.startsWith('tools_cat_view_')) {
         const catId = parseInt(data.replace('tools_cat_view_', ''));
-        bot.deleteMessage(chatId, messageId).catch(() => { });
-        await sendToolsInCategory(bot, chatId, catId, undefined, replyOptions);
+        await sendToolsInCategory(bot, chatId, catId, messageId, replyOptions);
         bot.answerCallbackQuery(query.id);
         return true;
     }
@@ -318,15 +353,14 @@ export async function handleToolsCallback(
     }
 
     if (data === 'tools_close_msg') {
-        bot.deleteMessage(chatId, messageId).catch(() => { });
+        await sendToolsList(bot, chatId, messageId, replyOptions);
         bot.answerCallbackQuery(query.id);
         return true;
     }
 
     if (data.startsWith('tools_view_')) {
         const toolId = parseInt(data.replace('tools_view_', ''));
-        bot.deleteMessage(chatId, messageId).catch(() => { });
-        await sendToolDetails(bot, chatId, toolId, userRole, userId, replyOptions);
+        await sendToolDetails(bot, chatId, toolId, userRole, userId, messageId, replyOptions);
         bot.answerCallbackQuery(query.id);
         return true;
     }
@@ -340,8 +374,7 @@ export async function handleToolsCallback(
                 if (userRole === 'admin' || tool.created_by === userId) {
                     await db.query('DELETE FROM tools WHERE id = $1', [toolId]);
                     bot.answerCallbackQuery(query.id, { text: '✅ Đã xóa công cụ.' });
-                    bot.deleteMessage(chatId, messageId).catch(() => { });
-                    await sendToolsInCategory(bot, chatId, tool.category_id, undefined, replyOptions);
+                    await sendToolsInCategory(bot, chatId, tool.category_id, messageId, replyOptions);
                 } else {
                     bot.answerCallbackQuery(query.id, { text: '❌ Bạn không có quyền xóa công cụ này.', show_alert: true });
                 }
@@ -362,7 +395,7 @@ export async function handleToolsCallback(
         try {
             await db.query('DELETE FROM tool_categories WHERE id = $1', [catId]);
             bot.answerCallbackQuery(query.id, { text: '✅ Đã xóa danh mục.' });
-            await sendToolCategoriesList(bot, chatId, messageId);
+            await sendToolCategoriesList(bot, chatId, messageId, replyOptions);
         } catch (err) {
             console.error('Error deleting tool category:', err);
             bot.answerCallbackQuery(query.id, { text: '❌ Có lỗi xảy ra.', show_alert: true });
@@ -450,21 +483,30 @@ async function sendToolsList(bot: TelegramBot, chatId: number, messageId?: numbe
         const text = '🛠 **DANH SÁCH CÔNG CỤ**\n\nChọn một danh mục để xem các công cụ:';
         const keyboard: InlineKeyboardButton[][] = cats.rows.map(c => [{ text: `📁 ${c.name}`, callback_data: `tools_cat_view_${c.id}` }]);
 
-        if (chatId < 0) {
-            keyboard.push([{ text: '❌ Đóng', callback_data: 'tools_close_msg' }]);
-        } else {
+        if (chatId > 0) {
             keyboard.push([{ text: '🔙 Quay lại Menu', callback_data: 'user_dashboard' }]);
+        } else {
+            keyboard.push([{ text: '🔙 Quay lại Menu', callback_data: 'tools_dashboard' }]);
         }
 
         let sentMsg: TelegramBot.Message | undefined;
 
         if (messageId) {
-            bot.editMessageText(text, {
-                chat_id: chatId,
-                message_id: messageId,
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: keyboard }
-            }).catch(console.error);
+            try {
+                await bot.editMessageText(text, {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            } catch (e) {
+                bot.deleteMessage(chatId, messageId).catch(() => { });
+                sentMsg = await bot.sendMessage(chatId, text, {
+                    ...replyOptions,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            }
         } else {
             sentMsg = await bot.sendMessage(chatId, text, {
                 ...replyOptions,
@@ -474,11 +516,11 @@ async function sendToolsList(bot: TelegramBot, chatId: number, messageId?: numbe
         }
 
         if (chatId < 0) {
-            const msgIdToDelete = messageId || sentMsg?.message_id;
-            if (msgIdToDelete) {
-                setTimeout(() => {
-                    bot.deleteMessage(chatId, msgIdToDelete).catch(() => { });
-                }, 60000);
+            const msgId = sentMsg?.message_id || messageId;
+            if (msgId) {
+                setAutoBackTimeout(msgId, () => {
+                    bot.deleteMessage(chatId, msgId).catch(() => { });
+                });
             }
         }
     } catch (err) {
@@ -486,7 +528,7 @@ async function sendToolsList(bot: TelegramBot, chatId: number, messageId?: numbe
     }
 }
 
-async function sendToolCategoriesList(bot: TelegramBot, chatId: number, messageId?: number) {
+async function sendToolCategoriesList(bot: TelegramBot, chatId: number, messageId?: number, replyOptions?: TelegramBot.SendMessageOptions) {
     try {
         const cats = await db.query('SELECT id, name, description FROM tool_categories ORDER BY name ASC');
         const text = '🛠 **QUẢN LÝ DANH MỤC CÔNG CỤ**\n\nDanh sách các danh mục hiện có:';
@@ -498,14 +540,24 @@ async function sendToolCategoriesList(bot: TelegramBot, chatId: number, messageI
         keyboard.push([{ text: '🔙 Quay lại Menu Admin', callback_data: 'admin_dashboard' }]);
 
         if (messageId) {
-            bot.editMessageText(text, {
-                chat_id: chatId,
-                message_id: messageId,
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: keyboard }
-            }).catch(console.error);
+            try {
+                await bot.editMessageText(text, {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            } catch (e) {
+                bot.deleteMessage(chatId, messageId).catch(() => { });
+                bot.sendMessage(chatId, text, {
+                    ...replyOptions,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            }
         } else {
             bot.sendMessage(chatId, text, {
+                ...replyOptions,
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: keyboard }
             });
@@ -531,33 +583,42 @@ async function sendToolsInCategory(bot: TelegramBot, chatId: number, categoryId:
             keyboard.push([{ text: '🔙 Quay lại Danh mục', callback_data: 'tools_list' }]);
         } else {
             keyboard.push([
-                { text: '🔙 Quay lại Danh mục', callback_data: 'tools_list' },
-                { text: '❌ Đóng', callback_data: 'tools_close_msg' }
+                { text: '🔙 Quay lại Danh mục', callback_data: 'tools_list' }
             ]);
         }
 
         let sentMsg: TelegramBot.Message | undefined;
 
         if (messageId) {
-            bot.editMessageText(text, {
-                chat_id: chatId,
-                message_id: messageId,
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: keyboard }
-            }).catch(console.error);
+            try {
+                await bot.editMessageText(text, {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            } catch (e) {
+                bot.deleteMessage(chatId, messageId).catch(() => { });
+                sentMsg = await bot.sendMessage(chatId, text, {
+                    ...replyOptions,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            }
         } else {
             sentMsg = await bot.sendMessage(chatId, text, {
+                ...replyOptions,
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: keyboard }
             });
         }
 
         if (chatId < 0) {
-            const msgIdToDelete = messageId || sentMsg?.message_id;
-            if (msgIdToDelete) {
-                setTimeout(() => {
-                    bot.deleteMessage(chatId, msgIdToDelete).catch(() => { });
-                }, 60000);
+            const msgId = sentMsg?.message_id || messageId;
+            if (msgId) {
+                setAutoBackTimeout(msgId, () => {
+                    bot.deleteMessage(chatId, msgId).catch(() => { });
+                });
             }
         }
     } catch (err) {
@@ -565,7 +626,7 @@ async function sendToolsInCategory(bot: TelegramBot, chatId: number, categoryId:
     }
 }
 
-async function sendToolDetails(bot: TelegramBot, chatId: number, toolId: number, userRole: string, userId: number, replyOptions?: TelegramBot.SendMessageOptions) {
+async function sendToolDetails(bot: TelegramBot, chatId: number, toolId: number, userRole: string, userId: number, messageId?: number, replyOptions?: TelegramBot.SendMessageOptions) {
     try {
         const toolRes = await db.query(`
       SELECT t.*, c.name as category_name, 
@@ -603,17 +664,27 @@ async function sendToolDetails(bot: TelegramBot, chatId: number, toolId: number,
         if (chatId < 0) {
             keyboard.push([
                 { text: '🔙 Quay lại Danh mục', callback_data: `tools_cat_view_${tool.category_id}` },
-                { text: '❌ Đóng', callback_data: 'tools_close_msg' }
+                { text: '🔙 Menu Chính', callback_data: 'tools_list' }
             ]);
         } else {
             keyboard.push([{ text: '🔙 Quay lại Danh mục', callback_data: `tools_cat_view_${tool.category_id}` }]);
         }
 
-        let sentMsg: TelegramBot.Message;
+        let sentMsg: TelegramBot.Message | undefined;
 
         if (tool.file_id) {
+            if (messageId) {
+                bot.deleteMessage(chatId, messageId).catch(() => { });
+            }
             if (tool.file_type === 'document') {
                 sentMsg = await bot.sendDocument(chatId, tool.file_id, {
+                    ...replyOptions,
+                    caption: text,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            } else if (tool.file_type === 'video') {
+                sentMsg = await bot.sendVideo(chatId, tool.file_id, {
                     ...replyOptions,
                     caption: text,
                     parse_mode: 'Markdown',
@@ -628,22 +699,47 @@ async function sendToolDetails(bot: TelegramBot, chatId: number, toolId: number,
                 });
             }
         } else {
-            sentMsg = await bot.sendMessage(chatId, text, {
-                ...replyOptions,
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: keyboard }
-            });
+            if (messageId) {
+                try {
+                    await bot.editMessageText(text, {
+                        chat_id: chatId,
+                        message_id: messageId,
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: keyboard }
+                    });
+                } catch (e) {
+                    bot.deleteMessage(chatId, messageId).catch(() => { });
+                    sentMsg = await bot.sendMessage(chatId, text, {
+                        ...replyOptions,
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: keyboard }
+                    });
+                }
+            } else {
+                sentMsg = await bot.sendMessage(chatId, text, {
+                    ...replyOptions,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            }
         }
 
-        // Auto-delete after 1 minute in group chats
         if (chatId < 0) {
-            setTimeout(() => {
-                bot.deleteMessage(chatId, sentMsg.message_id).catch(() => { });
-            }, 60000);
+            const msgId = sentMsg?.message_id || messageId;
+            if (msgId) {
+                setAutoBackTimeout(msgId, () => {
+                    bot.deleteMessage(chatId, msgId).catch(() => { });
+                });
+            }
         }
 
     } catch (err) {
         console.error('Error sending tool details:', err);
-        bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi tải thông tin công cụ.');
+        bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi tải thông tin công cụ.', {
+            ...replyOptions,
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 Quay lại Menu', callback_data: 'tools_list' }]]
+            }
+        });
     }
 }

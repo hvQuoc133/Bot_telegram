@@ -7,7 +7,7 @@ import { handleAdminCommand, handleAdminState, handleAdminDeepLink, handleAdminD
 import { handleRegulationCommand, handleRegulationDeepLink, handleRegulationState, refreshAllRegulationTopics } from '../topics/regulationTopic';
 import { handleSetTopicCommand, getTopicFeature } from '../topics/topicManager';
 import { handleReportDeepLink, handleReportState, handleReportCallback } from '../topics/reportTopic';
-import { handleGroupInfoCommand, handleInfoMessage, handleInfoDeepLink } from '../topics/infoTopic';
+import { handleInfoMessage, handleInfoDeepLink } from '../topics/infoTopic';
 import { handleAnnouncementDeepLink, handleAnnouncementState } from '../topics/announcementTopic';
 import { handleToolsDeepLink, handleToolsState, handleToolsCommand } from '../topics/toolsTopic';
 
@@ -109,15 +109,15 @@ export async function handleMessage(msg: TelegramBot.Message) {
     const { feature, targetId } = await getTopicFeature(chatId, topicId);
 
     // Prevent chatting in specific topics
-    if ((feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools') && !text.startsWith('/')) {
+    if ((feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact') && !text.startsWith('/')) {
       bot.deleteMessage(chatId, msg.message_id).catch(() => { });
       bot.sendMessage(chatId, '⚠️ Topic này không được chat, chỉ được xem và sử dụng lệnh /.', replyOptions)
         .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
       return;
     }
 
-    // If it's a regulation, report, information, announcement, or tools topic, auto-delete the user's message after 5s
-    if (feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools') {
+    // If it's a regulation, report, information, announcement, tools, or contact topic, auto-delete the user's message after 5s
+    if (feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact') {
       setTimeout(() => bot.deleteMessage(chatId, msg.message_id).catch(() => { }), 5000);
     }
 
