@@ -10,6 +10,7 @@ import { handleReportDeepLink, handleReportState, handleReportCallback } from '.
 import { handleInfoMessage, handleInfoDeepLink } from '../topics/infoTopic';
 import { handleAnnouncementDeepLink, handleAnnouncementState } from '../topics/announcementTopic';
 import { handleToolsDeepLink, handleToolsState, handleToolsCommand } from '../topics/toolsTopic';
+import { handleProposalDeepLink, handleProposalState } from '../topics/proposalTopic';
 
 const commandCache = new Map<string, number>();
 const COMMAND_COOLDOWN = 15000; // 15 seconds
@@ -220,6 +221,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
         if (await handleInfoDeepLink(bot, msg, param, userRole, session)) return;
         if (await handleAnnouncementDeepLink(bot, msg, param, userRole, session)) return;
         if (await handleToolsDeepLink(bot, msg, param, userRole, session)) return;
+        if (await handleProposalDeepLink(bot, msg, param, userRole)) return;
       }
 
       if (userRole === 'admin') {
@@ -234,6 +236,10 @@ export async function handleMessage(msg: TelegramBot.Message) {
           [
             { text: '📝 Gửi báo cáo', callback_data: 'rep_create' },
             { text: '📋 Lịch sử báo cáo', callback_data: 'rep_my_list' }
+          ],
+          [
+            { text: '💡 Tạo đề xuất', url: `https://t.me/${botUsername}?start=create_proposal` },
+            { text: '📋 Lịch sử đề xuất', url: `https://t.me/${botUsername}?start=my_proposals` }
           ]
         ];
 
@@ -283,6 +289,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
     if (await handleInfoMessage(bot, msg, session.state, userId)) return;
     if (await handleAnnouncementState(bot, msg, command, userRole, session)) return;
     if (await handleToolsState(bot, msg, command, userRole, session)) return;
+    if (await handleProposalState(bot, msg, session)) return;
 
     // Handle commands if idle
     if (command === '/admin') {

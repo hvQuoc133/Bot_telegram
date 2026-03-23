@@ -374,7 +374,8 @@ export async function handleAdminDashboard(
             { text: '📢 Quản lý Thông báo', callback_data: 'admin_manage_announcements' }
         ],
         [
-            { text: '🛠 Quản lý Công cụ', callback_data: 'admin_manage_tools' }
+            { text: '🛠 Quản lý Công cụ', callback_data: 'admin_manage_tools' },
+            { text: '💡 Quản lý Đề xuất', callback_data: 'admin_manage_proposals' }
         ],
         [{ text: '❌ Đóng Menu', callback_data: 'admin_close_dashboard' }]
     ];
@@ -449,6 +450,25 @@ export async function handleAdminCallback(
             [{ text: '📋 Danh sách Danh mục', callback_data: 'tools_cat_list' }],
             [{ text: '➕ Thêm Công cụ mới', url: `https://t.me/${botUsername}?start=tools_add` }],
             [{ text: '📋 Danh sách Công cụ', callback_data: 'tools_admin_list' }],
+            [{ text: '🔙 Quay lại', callback_data: 'admin_dashboard' }]
+        ];
+        bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(console.error);
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data === 'admin_manage_proposals') {
+        const text = `💡 **QUẢN LÝ ĐỀ XUẤT**\n\nChọn thao tác bạn muốn thực hiện:`;
+        const keyboard = [
+            [{ text: '⏳ Đề xuất chờ duyệt', callback_data: 'prop_admin_filter_PENDING' }],
+            [{ text: '✅ Đề xuất đã duyệt', callback_data: 'prop_admin_filter_APPROVED' }],
+            [{ text: '❌ Đề xuất đã từ chối', callback_data: 'prop_admin_filter_REJECTED' }],
+            [{ text: '👤 Lịch sử theo người dùng', callback_data: 'prop_admin_filter_user' }],
             [{ text: '🔙 Quay lại', callback_data: 'admin_dashboard' }]
         ];
         bot.editMessageText(text, {

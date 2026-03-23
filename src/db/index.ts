@@ -155,6 +155,26 @@ export async function initDb() {
         END IF;
       END
       $$;
+      CREATE TABLE IF NOT EXISTS proposals (
+        id SERIAL PRIMARY KEY,
+        proposal_code VARCHAR(50) UNIQUE NOT NULL,
+        user_id BIGINT NOT NULL REFERENCES users(id),
+        chat_id BIGINT NOT NULL,
+        topic_id BIGINT DEFAULT 0,
+        type VARCHAR(50) NOT NULL,
+        content TEXT NOT NULL,
+        apply_time TEXT,
+        cost TEXT,
+        file_id TEXT,
+        file_type VARCHAR(20),
+        status VARCHAR(20) DEFAULT 'PENDING',
+        admin_id BIGINT REFERENCES users(id),
+        reject_reason TEXT,
+        message_id BIGINT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS tool_categories (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,

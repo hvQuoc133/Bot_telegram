@@ -180,10 +180,24 @@ export async function handleAnnouncementState(
         if (command !== '/skip') {
             const parts = text.split(/[\s/:-]+/);
             if (parts.length >= 5) {
-                eventStartTime = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+                const day = parseInt(parts[0]);
+                const month = parseInt(parts[1]) - 1;
+                const year = parseInt(parts[2]);
+                const hour = parseInt(parts[3]);
+                const minute = parseInt(parts[4]);
+                eventStartTime = new Date(year, month, day, hour, minute);
+
+                if (eventStartTime.getDate() !== day || eventStartTime.getMonth() !== month || eventStartTime.getFullYear() !== year || eventStartTime.getHours() !== hour || eventStartTime.getMinutes() !== minute) {
+                    eventStartTime = null;
+                }
             }
             if (!eventStartTime || isNaN(eventStartTime.getTime())) {
                 const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
+                updateSession(userId, { state: 'creating_announcement_step_3', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
+                return true;
+            }
+            if (eventStartTime < new Date()) {
+                const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Không thể chọn thời gian trong quá khứ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
                 updateSession(userId, { state: 'creating_announcement_step_3', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
                 return true;
             }
@@ -202,10 +216,24 @@ export async function handleAnnouncementState(
         if (command !== '/skip') {
             const parts = text.split(/[\s/:-]+/);
             if (parts.length >= 5) {
-                eventEndTime = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+                const day = parseInt(parts[0]);
+                const month = parseInt(parts[1]) - 1;
+                const year = parseInt(parts[2]);
+                const hour = parseInt(parts[3]);
+                const minute = parseInt(parts[4]);
+                eventEndTime = new Date(year, month, day, hour, minute);
+
+                if (eventEndTime.getDate() !== day || eventEndTime.getMonth() !== month || eventEndTime.getFullYear() !== year || eventEndTime.getHours() !== hour || eventEndTime.getMinutes() !== minute) {
+                    eventEndTime = null;
+                }
             }
             if (!eventEndTime || isNaN(eventEndTime.getTime())) {
                 const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
+                updateSession(userId, { state: 'creating_announcement_step_4', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
+                return true;
+            }
+            if (eventEndTime < new Date()) {
+                const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Không thể chọn thời gian trong quá khứ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
                 updateSession(userId, { state: 'creating_announcement_step_4', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
                 return true;
             }
@@ -228,7 +256,16 @@ export async function handleAnnouncementState(
         let scheduledAt: Date | null = null;
         const parts = text.split(/[\s/:-]+/);
         if (parts.length >= 5) {
-            scheduledAt = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+            const day = parseInt(parts[0]);
+            const month = parseInt(parts[1]) - 1;
+            const year = parseInt(parts[2]);
+            const hour = parseInt(parts[3]);
+            const minute = parseInt(parts[4]);
+            scheduledAt = new Date(year, month, day, hour, minute);
+
+            if (scheduledAt.getDate() !== day || scheduledAt.getMonth() !== month || scheduledAt.getFullYear() !== year || scheduledAt.getHours() !== hour || scheduledAt.getMinutes() !== minute) {
+                scheduledAt = null;
+            }
         }
         if (!scheduledAt || isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
             const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ hoặc đã qua. Vui lòng nhập lại (DD/MM/YYYY HH:mm):');
@@ -270,12 +307,26 @@ export async function handleAnnouncementState(
         if (command !== '/skip') {
             const parts = text.split(/[\s/:-]+/);
             if (parts.length >= 5) {
-                eventStartTime = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+                const day = parseInt(parts[0]);
+                const month = parseInt(parts[1]) - 1;
+                const year = parseInt(parts[2]);
+                const hour = parseInt(parts[3]);
+                const minute = parseInt(parts[4]);
+                eventStartTime = new Date(year, month, day, hour, minute);
+
+                if (eventStartTime.getDate() !== day || eventStartTime.getMonth() !== month || eventStartTime.getFullYear() !== year || eventStartTime.getHours() !== hour || eventStartTime.getMinutes() !== minute) {
+                    eventStartTime = null;
+                }
             } else {
                 eventStartTime = null;
             }
-            if (eventStartTime && isNaN(eventStartTime.getTime())) {
+            if (!eventStartTime || isNaN(eventStartTime.getTime())) {
                 const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
+                updateSession(userId, { state: 'editing_announcement_step_3', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
+                return true;
+            }
+            if (eventStartTime < new Date()) {
+                const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Không thể chọn thời gian trong quá khứ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
                 updateSession(userId, { state: 'editing_announcement_step_3', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
                 return true;
             }
@@ -294,12 +345,26 @@ export async function handleAnnouncementState(
         if (command !== '/skip') {
             const parts = text.split(/[\s/:-]+/);
             if (parts.length >= 5) {
-                eventEndTime = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+                const day = parseInt(parts[0]);
+                const month = parseInt(parts[1]) - 1;
+                const year = parseInt(parts[2]);
+                const hour = parseInt(parts[3]);
+                const minute = parseInt(parts[4]);
+                eventEndTime = new Date(year, month, day, hour, minute);
+
+                if (eventEndTime.getDate() !== day || eventEndTime.getMonth() !== month || eventEndTime.getFullYear() !== year || eventEndTime.getHours() !== hour || eventEndTime.getMinutes() !== minute) {
+                    eventEndTime = null;
+                }
             } else {
                 eventEndTime = null;
             }
-            if (eventEndTime && isNaN(eventEndTime.getTime())) {
+            if (!eventEndTime || isNaN(eventEndTime.getTime())) {
                 const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
+                updateSession(userId, { state: 'editing_announcement_step_4', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
+                return true;
+            }
+            if (eventEndTime < new Date()) {
+                const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Không thể chọn thời gian trong quá khứ. Vui lòng nhập lại (DD/MM/YYYY HH:mm) hoặc /skip:');
                 updateSession(userId, { state: 'editing_announcement_step_4', tempData: { ...session.tempData, promptMessageId: prompt.message_id } });
                 return true;
             }
@@ -323,7 +388,16 @@ export async function handleAnnouncementState(
         let scheduledAt: Date | null = null;
         const parts = text.split(/[\s/:-]+/);
         if (parts.length >= 5) {
-            scheduledAt = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+            const day = parseInt(parts[0]);
+            const month = parseInt(parts[1]) - 1;
+            const year = parseInt(parts[2]);
+            const hour = parseInt(parts[3]);
+            const minute = parseInt(parts[4]);
+            scheduledAt = new Date(year, month, day, hour, minute);
+
+            if (scheduledAt.getDate() !== day || scheduledAt.getMonth() !== month || scheduledAt.getFullYear() !== year || scheduledAt.getHours() !== hour || scheduledAt.getMinutes() !== minute) {
+                scheduledAt = null;
+            }
         }
         if (!scheduledAt || isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
             const prompt = await bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ hoặc đã qua. Vui lòng nhập lại (DD/MM/YYYY HH:mm):');

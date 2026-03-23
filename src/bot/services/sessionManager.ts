@@ -48,7 +48,13 @@ export type UserState =
   | 'adding_tool_link_or_file'
   | 'editing_tool_name'
   | 'editing_tool_desc'
-  | 'editing_tool_link_or_file';
+  | 'editing_tool_link_or_file'
+  | 'creating_proposal_type'
+  | 'creating_proposal_content'
+  | 'creating_proposal_time'
+  | 'creating_proposal_cost'
+  | 'creating_proposal_file'
+  | 'rejecting_proposal';
 
 export interface SessionData {
   state: UserState;

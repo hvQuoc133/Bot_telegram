@@ -9,6 +9,7 @@ import { handleTopicCallback } from '../topics/topicManager';
 import { handleInfoCallback } from '../topics/infoTopic';
 import { handleAnnouncementCallback } from '../topics/announcementTopic';
 import { handleToolsCallback } from '../topics/toolsTopic';
+import { handleProposalCallback } from '../topics/proposalTopic';
 
 export async function handleCallbackQuery(query: TelegramBot.CallbackQuery) {
   const chatId = query.message?.chat.id;
@@ -66,6 +67,11 @@ export async function handleCallbackQuery(query: TelegramBot.CallbackQuery) {
       if (handled) return;
     }
 
+    if (data.startsWith('prop_')) {
+      const handled = await handleProposalCallback(bot, query, data, userRole, session);
+      if (handled) return;
+    }
+
     if (data.startsWith('topic_')) {
       console.log(`[Callback] Handling topic callback: ${data}`);
       const handled = await handleTopicCallback(bot, query, data, userRole);
@@ -86,6 +92,10 @@ export async function handleCallbackQuery(query: TelegramBot.CallbackQuery) {
         [
           { text: '📝 Gửi báo cáo', callback_data: 'rep_create' },
           { text: '📋 Lịch sử báo cáo', callback_data: 'rep_my_list' }
+        ],
+        [
+          { text: '💡 Tạo đề xuất', url: `https://t.me/${botUsername}?start=create_proposal` },
+          { text: '📋 Lịch sử đề xuất', url: `https://t.me/${botUsername}?start=my_proposals` }
         ]
       ];
 
