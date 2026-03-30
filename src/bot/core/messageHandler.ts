@@ -110,23 +110,31 @@ export async function handleMessage(msg: TelegramBot.Message) {
   if (!isPrivate) {
     const { feature, targetId } = await getTopicFeature(chatId, topicId);
 
+    // Setup topic command for admins (always allowed so they can configure)
+    if (await handleSetTopicCommand(bot, msg, command, userRole, isGroupAdmin, replyOptions)) return;
+
+    // If no feature is set for this group/topic, or it's a chat topic, ignore all other commands and messages
+    if (!feature || feature === 'chat' || feature === 'discussion') {
+      return;
+    }
+
     // Prevent chatting in specific topics
-    if ((feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact') && !text.startsWith('/')) {
+    if ((feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact' || feature === 'documents') && !text.startsWith('/')) {
       bot.deleteMessage(chatId, msg.message_id).catch(() => { });
       bot.sendMessage(chatId, '⚠️ Topic này không được chat, chỉ được xem và sử dụng lệnh /.', replyOptions)
         .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
       return;
     }
 
-    // If it's a regulation, report, information, announcement, tools, or contact topic, auto-delete the user's message after 5s
-    if (feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact') {
+    // If it's a specific topic, auto-delete the user's message after 5s
+    if (feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact' || feature === 'documents') {
       setTimeout(() => bot.deleteMessage(chatId, msg.message_id).catch(() => { }), 5000);
     }
 
     // Debug command to check if bot is alive in the group
     if (command === '/ping') {
       bot.sendMessage(chatId, '🏓 Pong! Bot đang hoạt động tốt trong nhóm/topic này.', replyOptions)
-        .then(m => { if (feature === 'regulation' || feature === 'report') setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 30000); })
+        .then(m => { setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 30000); })
         .catch(console.error);
       return;
     }
@@ -181,19 +189,11 @@ export async function handleMessage(msg: TelegramBot.Message) {
         reply_markup: {
           inline_keyboard: [[{ text: '👉 Chuyển đến Inbox Bot', url: deepLink }]]
         }
-      }).then(m => { if (feature === 'regulation' || feature === 'report') setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 30000); })
+      }).then(m => { setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 30000); })
         .catch(console.error);
       return;
     }
 
-    // Setup topic command for admins
-    if (await handleSetTopicCommand(bot, msg, command, userRole, isGroupAdmin, replyOptions)) return;
-
-    if (feature === 'discussion') {
-      return;
-    }
-
-    // If no feature is set for this group/topic, just ignore messages
     return;
   }
 

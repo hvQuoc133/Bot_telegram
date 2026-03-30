@@ -506,7 +506,7 @@ export async function handleProposalCallback(
             let groupRes = await db.query("SELECT chat_id, topic_id FROM topics WHERE feature_type = 'proposal' LIMIT 1");
 
             if (groupRes.rows.length === 0) {
-                groupRes = await db.query("SELECT chat_id, topic_id FROM topics WHERE feature_type = 'report' OR feature_type = 'discussion' LIMIT 1");
+                groupRes = await db.query("SELECT chat_id, topic_id FROM topics WHERE feature_type = 'report' OR feature_type = 'chat' OR feature_type = 'discussion' LIMIT 1");
             }
 
             if (groupRes.rows.length === 0) {
