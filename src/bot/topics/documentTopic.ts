@@ -58,7 +58,7 @@ export async function sendDocumentsDashboard(bot: TelegramBot, chatId: number, m
 
         if (userRole === 'admin') {
             keyboard = docs.rows.map(d => [{ text: `📄 ${d.title}`, callback_data: `docs_admin_view_${d.id}` }]);
-            keyboard.push([{ text: '➕ Thêm Tài liệu mới', callback_data: 'docs_add' }]);
+            keyboard.push([{ text: '➕ Thêm Tài liệu mới', url: `https://t.me/${botUsername}?start=docs_add` }]);
             keyboard.push([{ text: '⚙️ Hủy cài đặt Topic', callback_data: 'topic_unset_request' }]);
             text = '📁 *QUẢN LÝ TÀI LIỆU BIỂU MẪU*\n\nChào Admin, vui lòng chọn chức năng quản lý bên dưới:';
             keyboard.push([{ text: '🔄 Làm mới', callback_data: 'docs_admin_list' }, { text: '❌ Đóng', callback_data: 'docs_close' }]);
@@ -115,6 +115,72 @@ export async function sendDocumentsList(bot: TelegramBot, chatId: number, messag
     }
 }
 
+export async function handleDocumentDeepLink(
+    bot: TelegramBot,
+    msg: TelegramBot.Message,
+    param: string,
+    userRole: string,
+    session: SessionData
+): Promise<boolean> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (!userId) return false;
+
+    if (param === 'docs_add') {
+        if (userRole !== 'admin') {
+            bot.sendMessage(chatId, '❌ Chỉ Admin mới có quyền thêm tài liệu.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            return true;
+        }
+        const sentMsg = await bot.sendMessage(chatId, '➕ **THÊM TÀI LIỆU MỚI**\n\nVui lòng nhập tiêu đề tài liệu:', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
+        });
+        updateSession(userId, { state: 'adding_document_title', tempData: { promptMessageId: sentMsg.message_id } });
+        return true;
+    }
+
+    if (param.startsWith('docs_edit_title_')) {
+        if (userRole !== 'admin') {
+            bot.sendMessage(chatId, '❌ Chỉ Admin mới có quyền sửa tài liệu.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            return true;
+        }
+        const docId = parseInt(param.replace('docs_edit_title_', ''));
+        const sentMsg = await bot.sendMessage(chatId, '✏️ Vui lòng nhập tiêu đề mới cho tài liệu:', {
+            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
+        });
+        updateSession(userId, { state: 'editing_document_title', tempData: { docId, promptMessageId: sentMsg.message_id } });
+        return true;
+    }
+
+    if (param.startsWith('docs_edit_desc_')) {
+        if (userRole !== 'admin') {
+            bot.sendMessage(chatId, '❌ Chỉ Admin mới có quyền sửa tài liệu.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            return true;
+        }
+        const docId = parseInt(param.replace('docs_edit_desc_', ''));
+        const sentMsg = await bot.sendMessage(chatId, '✏️ Vui lòng nhập mô tả mới cho tài liệu:', {
+            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
+        });
+        updateSession(userId, { state: 'editing_document_desc', tempData: { docId, promptMessageId: sentMsg.message_id } });
+        return true;
+    }
+
+    if (param.startsWith('docs_edit_file_')) {
+        if (userRole !== 'admin') {
+            bot.sendMessage(chatId, '❌ Chỉ Admin mới có quyền sửa tài liệu.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            return true;
+        }
+        const docId = parseInt(param.replace('docs_edit_file_', ''));
+        const sentMsg = await bot.sendMessage(chatId, '📎 Vui lòng gửi tệp đính kèm mới (hoặc đường link) cho tài liệu:', {
+            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
+        });
+        updateSession(userId, { state: 'editing_document_file', tempData: { docId, promptMessageId: sentMsg.message_id } });
+        return true;
+    }
+
+    return false;
+}
+
 export async function handleDocumentCallback(
     bot: TelegramBot,
     query: TelegramBot.CallbackQuery,
@@ -146,24 +212,10 @@ export async function handleDocumentCallback(
         return true;
     }
 
-    if (data === 'docs_add') {
-        if (userRole !== 'admin') {
-            bot.answerCallbackQuery(query.id, { text: '❌ Chỉ Admin mới có quyền thêm tài liệu.', show_alert: true }).catch(() => { });
-            return true;
-        }
-        const sentMsg = await bot.sendMessage(chatId, '➕ **THÊM TÀI LIỆU MỚI**\n\nVui lòng nhập tiêu đề tài liệu:', {
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
-        });
-        updateSession(userId, { state: 'adding_document_title', tempData: { promptMessageId: sentMsg.message_id } });
-        bot.answerCallbackQuery(query.id).catch(() => { });
-        return true;
-    }
-
     if (data === 'docs_cancel') {
         clearSession(userId);
         bot.deleteMessage(chatId, messageId).catch(() => { });
-        bot.sendMessage(chatId, '❌ Đã hủy thao tác.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
+        bot.sendMessage(chatId, '❌ Đã hủy thao tác.', { message_thread_id: query.message?.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
         bot.answerCallbackQuery(query.id).catch(() => { });
         return true;
     }
@@ -180,9 +232,9 @@ export async function handleDocumentCallback(
                 const doc = docRes.rows[0];
                 const text = `📄 **${doc.title}**\n\n📝 Mô tả: ${doc.description || 'Không có'}\n\nBạn muốn làm gì với tài liệu này?`;
                 const keyboard = [
-                    [{ text: '✏️ Sửa Tiêu đề', callback_data: `docs_edit_title_${docId}` }],
-                    [{ text: '✏️ Sửa Mô tả', callback_data: `docs_edit_desc_${docId}` }],
-                    [{ text: '✏️ Cập nhật Tệp', callback_data: `docs_edit_file_${docId}` }],
+                    [{ text: '✏️ Sửa Tiêu đề', url: `https://t.me/${botUsername}?start=docs_edit_title_${docId}` }],
+                    [{ text: '✏️ Sửa Mô tả', url: `https://t.me/${botUsername}?start=docs_edit_desc_${docId}` }],
+                    [{ text: '✏️ Cập nhật Tệp', url: `https://t.me/${botUsername}?start=docs_edit_file_${docId}` }],
                     [{ text: '🗑 Xóa Tài liệu', callback_data: `docs_delete_${docId}` }],
                     [{ text: '🔙 Quay lại', callback_data: 'docs_admin_list' }]
                 ];
@@ -198,36 +250,6 @@ export async function handleDocumentCallback(
         } catch (err) {
             console.error('Error fetching document for admin view:', err);
         }
-        bot.answerCallbackQuery(query.id).catch(() => { });
-        return true;
-    }
-
-    if (data.startsWith('docs_edit_title_')) {
-        const docId = parseInt(data.replace('docs_edit_title_', ''));
-        const sentMsg = await bot.sendMessage(chatId, '✏️ Vui lòng nhập tiêu đề mới cho tài liệu:', {
-            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
-        });
-        updateSession(userId, { state: 'editing_document_title', tempData: { docId, promptMessageId: sentMsg.message_id } });
-        bot.answerCallbackQuery(query.id).catch(() => { });
-        return true;
-    }
-
-    if (data.startsWith('docs_edit_desc_')) {
-        const docId = parseInt(data.replace('docs_edit_desc_', ''));
-        const sentMsg = await bot.sendMessage(chatId, '✏️ Vui lòng nhập mô tả mới cho tài liệu:', {
-            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
-        });
-        updateSession(userId, { state: 'editing_document_desc', tempData: { docId, promptMessageId: sentMsg.message_id } });
-        bot.answerCallbackQuery(query.id).catch(() => { });
-        return true;
-    }
-
-    if (data.startsWith('docs_edit_file_')) {
-        const docId = parseInt(data.replace('docs_edit_file_', ''));
-        const sentMsg = await bot.sendMessage(chatId, '📎 Vui lòng gửi tệp đính kèm mới cho tài liệu:', {
-            reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
-        });
-        updateSession(userId, { state: 'editing_document_file', tempData: { docId, promptMessageId: sentMsg.message_id } });
         bot.answerCallbackQuery(query.id).catch(() => { });
         return true;
     }
@@ -254,8 +276,22 @@ export async function handleDocumentCallback(
                 const doc = docRes.rows[0];
                 const text = `📄 **${doc.title}**\n\n📝 Mô tả: ${doc.description || 'Không có'}`;
 
-                bot.sendMessage(chatId, text, { parse_mode: 'Markdown' }).then(() => {
-                    bot.sendDocument(chatId, doc.file_id).catch(console.error);
+                bot.sendMessage(chatId, text, { message_thread_id: query.message?.message_thread_id, parse_mode: 'Markdown' }).then((msg1) => {
+                    let sendPromise;
+                    if (doc.file_type === 'link') {
+                        sendPromise = bot.sendMessage(chatId, `🔗 Link: ${doc.file_id}`, { message_thread_id: query.message?.message_thread_id });
+                    } else if (doc.file_type === 'photo') {
+                        sendPromise = bot.sendPhoto(chatId, doc.file_id, { message_thread_id: query.message?.message_thread_id });
+                    } else {
+                        sendPromise = bot.sendDocument(chatId, doc.file_id, { message_thread_id: query.message?.message_thread_id });
+                    }
+
+                    sendPromise.then((msg2) => {
+                        setTimeout(() => {
+                            bot.deleteMessage(chatId, msg1.message_id).catch(() => { });
+                            bot.deleteMessage(chatId, msg2.message_id).catch(() => { });
+                        }, 60000); // 1 minute
+                    }).catch(console.error);
                 });
             } else {
                 bot.answerCallbackQuery(query.id, { text: '❌ Không tìm thấy tài liệu.', show_alert: true }).catch(() => { });
@@ -285,7 +321,7 @@ export async function handleDocumentMessage(
 
     if (state === 'adding_document_title') {
         if (!text) {
-            bot.sendMessage(chatId, '❌ Vui lòng nhập văn bản cho tiêu đề.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            bot.sendMessage(chatId, '❌ Vui lòng nhập văn bản cho tiêu đề.', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
             return true;
         }
@@ -293,9 +329,10 @@ export async function handleDocumentMessage(
             bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
         }
         const sentMsg = await bot.sendMessage(chatId, '📝 Đã lưu tiêu đề.\n\nVui lòng nhập mô tả cho tài liệu (hoặc gõ /skip để bỏ qua):', {
+            message_thread_id: msg.message_thread_id,
             reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
         });
-        updateSession(userId, { state: 'adding_document_desc', tempData: { title: text, promptMessageId: sentMsg.message_id } });
+        updateSession(userId, { state: 'adding_document_desc', tempData: { ...session.tempData, title: text, promptMessageId: sentMsg.message_id } });
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
         return true;
     }
@@ -306,7 +343,8 @@ export async function handleDocumentMessage(
         if (tempData?.promptMessageId) {
             bot.deleteMessage(chatId, tempData.promptMessageId).catch(() => { });
         }
-        const sentMsg = await bot.sendMessage(chatId, '📎 Đã lưu mô tả.\n\nVui lòng gửi tệp đính kèm cho tài liệu:', {
+        const sentMsg = await bot.sendMessage(chatId, '📎 Đã lưu mô tả.\n\nVui lòng gửi tệp đính kèm (hoặc đường link) cho tài liệu:', {
+            message_thread_id: msg.message_thread_id,
             reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: 'docs_cancel' }]] }
         });
         updateSession(userId, { state: 'adding_document_file', tempData: { ...tempData, desc, promptMessageId: sentMsg.message_id } });
@@ -315,12 +353,6 @@ export async function handleDocumentMessage(
     }
 
     if (state === 'adding_document_file') {
-        if (!msg.document && !msg.photo) {
-            bot.sendMessage(chatId, '❌ Vui lòng gửi một tệp đính kèm (document hoặc photo).').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
-            bot.deleteMessage(chatId, msg.message_id).catch(() => { });
-            return true;
-        }
-
         let fileId = '';
         let fileType = '';
 
@@ -330,6 +362,13 @@ export async function handleDocumentMessage(
         } else if (msg.photo) {
             fileId = msg.photo[msg.photo.length - 1].file_id;
             fileType = 'photo';
+        } else if (msg.text && (msg.text.startsWith('http://') || msg.text.startsWith('https://'))) {
+            fileId = msg.text;
+            fileType = 'link';
+        } else {
+            bot.sendMessage(chatId, '❌ Vui lòng gửi một tệp đính kèm (document/photo) hoặc một đường link (http/https).', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            bot.deleteMessage(chatId, msg.message_id).catch(() => { });
+            return true;
         }
 
         const tempData = session.tempData;
@@ -344,20 +383,19 @@ export async function handleDocumentMessage(
             );
 
             clearSession(userId);
-            bot.sendMessage(chatId, '✅ Đã thêm tài liệu thành công!').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
+            bot.sendMessage(chatId, '✅ Đã thêm tài liệu thành công!', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
-            await sendDocumentsDashboard(bot, chatId, undefined, undefined, userRole);
             await refreshAllDocumentTopics(bot);
         } catch (err) {
             console.error('Error adding document:', err);
-            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi lưu tài liệu.');
+            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi lưu tài liệu.', { message_thread_id: msg.message_thread_id });
         }
         return true;
     }
 
     if (state === 'editing_document_title') {
         if (!text) {
-            bot.sendMessage(chatId, '❌ Vui lòng nhập văn bản cho tiêu đề.').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            bot.sendMessage(chatId, '❌ Vui lòng nhập văn bản cho tiêu đề.', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
             return true;
         }
@@ -368,13 +406,12 @@ export async function handleDocumentMessage(
         try {
             await db.query('UPDATE documents SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [text, docId]);
             clearSession(userId);
-            bot.sendMessage(chatId, '✅ Đã cập nhật tiêu đề thành công!').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
+            bot.sendMessage(chatId, '✅ Đã cập nhật tiêu đề thành công!', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
-            await sendDocumentsDashboard(bot, chatId, undefined, undefined, userRole);
             await refreshAllDocumentTopics(bot);
         } catch (err) {
             console.error('Error updating document title:', err);
-            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật.');
+            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật.', { message_thread_id: msg.message_thread_id });
         }
         return true;
     }
@@ -387,24 +424,17 @@ export async function handleDocumentMessage(
         try {
             await db.query('UPDATE documents SET description = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [text, docId]);
             clearSession(userId);
-            bot.sendMessage(chatId, '✅ Đã cập nhật mô tả thành công!').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
+            bot.sendMessage(chatId, '✅ Đã cập nhật mô tả thành công!', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
-            await sendDocumentsDashboard(bot, chatId, undefined, undefined, userRole);
             await refreshAllDocumentTopics(bot);
         } catch (err) {
             console.error('Error updating document desc:', err);
-            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật.');
+            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật.', { message_thread_id: msg.message_thread_id });
         }
         return true;
     }
 
     if (state === 'editing_document_file') {
-        if (!msg.document && !msg.photo) {
-            bot.sendMessage(chatId, '❌ Vui lòng gửi một tệp đính kèm (document hoặc photo).').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
-            bot.deleteMessage(chatId, msg.message_id).catch(() => { });
-            return true;
-        }
-
         let fileId = '';
         let fileType = '';
 
@@ -414,6 +444,13 @@ export async function handleDocumentMessage(
         } else if (msg.photo) {
             fileId = msg.photo[msg.photo.length - 1].file_id;
             fileType = 'photo';
+        } else if (msg.text && (msg.text.startsWith('http://') || msg.text.startsWith('https://'))) {
+            fileId = msg.text;
+            fileType = 'link';
+        } else {
+            bot.sendMessage(chatId, '❌ Vui lòng gửi một tệp đính kèm (document/photo) hoặc một đường link (http/https).', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+            bot.deleteMessage(chatId, msg.message_id).catch(() => { });
+            return true;
         }
 
         const docId = session.tempData.docId;
@@ -423,13 +460,12 @@ export async function handleDocumentMessage(
         try {
             await db.query('UPDATE documents SET file_id = $1, file_type = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [fileId, fileType, docId]);
             clearSession(userId);
-            bot.sendMessage(chatId, '✅ Đã cập nhật tệp đính kèm thành công!').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
+            bot.sendMessage(chatId, '✅ Đã cập nhật tệp đính kèm thành công!', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000));
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
-            await sendDocumentsDashboard(bot, chatId, undefined, undefined, userRole);
             await refreshAllDocumentTopics(bot);
         } catch (err) {
             console.error('Error updating document file:', err);
-            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật.');
+            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật.', { message_thread_id: msg.message_thread_id });
         }
         return true;
     }

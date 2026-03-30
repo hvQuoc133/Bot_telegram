@@ -11,7 +11,7 @@ import { handleInfoMessage, handleInfoDeepLink } from '../topics/infoTopic';
 import { handleAnnouncementDeepLink, handleAnnouncementState } from '../topics/announcementTopic';
 import { handleToolsDeepLink, handleToolsState, handleToolsCommand } from '../topics/toolsTopic';
 import { handleProposalDeepLink, handleProposalState } from '../topics/proposalTopic';
-import { handleDocumentMessage } from '../topics/documentTopic';
+import { handleDocumentMessage, handleDocumentDeepLink } from '../topics/documentTopic';
 
 const commandCache = new Map<string, number>();
 const COMMAND_COOLDOWN = 15000; // 15 seconds
@@ -226,10 +226,11 @@ export async function handleMessage(msg: TelegramBot.Message) {
         if (await handleAnnouncementDeepLink(bot, msg, param, userRole, session)) return;
         if (await handleToolsDeepLink(bot, msg, param, userRole, session)) return;
         if (await handleProposalDeepLink(bot, msg, param, userRole)) return;
+        if (await handleDocumentDeepLink(bot, msg, param, userRole, session)) return;
       }
 
       if (userRole === 'admin') {
-        await handleAdminDashboard(bot, chatId, userRole);
+        await handleAdminDashboard(bot, chatId, userRole, undefined, msg.message_thread_id);
       } else {
         const welcomeText = '🛠 **BẢNG ĐIỀU KHIỂN USER**\n\nChào bạn, vui lòng chọn chức năng từ Menu bên dưới:';
         const keyboard = [
@@ -249,6 +250,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
         ];
 
         bot.sendMessage(chatId, welcomeText, {
+          message_thread_id: msg.message_thread_id,
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: keyboard }
         }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 60000));
@@ -265,7 +267,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
         bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
       }
       clearSession(userId);
-      bot.sendMessage(chatId, '✅ Đã hủy thao tác hiện tại.')
+      bot.sendMessage(chatId, '✅ Đã hủy thao tác hiện tại.', { message_thread_id: msg.message_thread_id })
         .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 10000));
       bot.deleteMessage(chatId, msg.message_id).catch(() => { });
       return;
@@ -289,7 +291,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
       )) {
         // allow /skip command to pass through to the state machine
       } else {
-        bot.sendMessage(chatId, '⚠️ Bạn đang trong quá trình thực hiện một thao tác. Vui lòng hoàn thành hoặc gõ /cancel để hủy.')
+        bot.sendMessage(chatId, '⚠️ Bạn đang trong quá trình thực hiện một thao tác. Vui lòng hoàn thành hoặc gõ /cancel để hủy.', { message_thread_id: msg.message_thread_id })
           .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 30000));
         return;
       }
@@ -306,7 +308,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
 
     // Handle commands if idle
     if (command === '/admin') {
-      await handleAdminDashboard(bot, chatId, userRole);
+      await handleAdminDashboard(bot, chatId, userRole, undefined, msg.message_thread_id);
       bot.deleteMessage(chatId, msg.message_id).catch(() => { });
       return;
     }

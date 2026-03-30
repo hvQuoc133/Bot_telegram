@@ -352,10 +352,11 @@ export async function handleAdminDashboard(
     bot: TelegramBot,
     chatId: number,
     userRole: string,
-    messageId?: number
+    messageId?: number,
+    messageThreadId?: number
 ) {
     if (userRole !== 'admin') {
-        bot.sendMessage(chatId, '❌ Bạn không có quyền truy cập Bảng điều khiển Admin.').catch(console.error);
+        bot.sendMessage(chatId, '❌ Bạn không có quyền truy cập Bảng điều khiển Admin.', { message_thread_id: messageThreadId }).catch(console.error);
         return;
     }
 
@@ -392,6 +393,7 @@ export async function handleAdminDashboard(
         }).catch(console.error);
     } else {
         bot.sendMessage(chatId, text, {
+            message_thread_id: messageThreadId,
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: keyboard }
         }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 60000))
@@ -487,7 +489,7 @@ export async function handleAdminCallback(
     if (data === 'admin_manage_documents') {
         const text = `📁 **QUẢN LÝ TÀI LIỆU BIỂU MẪU**\n\nChọn thao tác bạn muốn thực hiện:`;
         const keyboard = [
-            [{ text: '➕ Thêm Tài liệu mới', callback_data: 'docs_add' }],
+            [{ text: '➕ Thêm Tài liệu mới', url: `https://t.me/${botUsername}?start=docs_add` }],
             [{ text: '📋 Danh sách Tài liệu', callback_data: 'docs_admin_list' }],
             [{ text: '🔙 Quay lại', callback_data: 'admin_dashboard' }]
         ];
