@@ -1,3 +1,4 @@
+import { formatVNTime, formatVNDate } from '../utils/dateUtils';
 import TelegramBot from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { updateSession, clearSession, getSession } from '../services/sessionManager';
@@ -79,9 +80,10 @@ export async function handleReportDeepLink(
         }
 
         const keyboard = res.rows.map(r => [{
-            text: `📄 ${r.title} (${new Date(r.created_at).toLocaleDateString('vi-VN')})`,
+            text: `📄 ${r.title} (${formatVNDate(r.created_at)})`,
             callback_data: `rep_view_detail_${r.id}`
         }]);
+        keyboard.push([{ text: '🗑 Đóng', callback_data: 'reg_close_temp' }]);
 
         bot.sendMessage(chatId, '📋 *DANH SÁCH BÁO CÁO CỦA BẠN:*', {
             parse_mode: 'Markdown',
@@ -120,7 +122,7 @@ export async function handleReportState(
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
             await db.query('UPDATE reports SET content = $1 WHERE id = $2', [text, session.tempData.reportId]);
             const keyboard = [[{ text: '✅ Hoàn tất đính kèm & Xem trước', callback_data: `rep_preview_${session.tempData.reportId}` }]];
-            bot.sendMessage(chatId, '📎 *Bước 3: Đính kèm (Tùy chọn)*\n\nBạn có thể gửi *Ảnh* hoặc *Tài liệu* đính kèm vào đây (gửi từng cái một).\n\nKhi nào xong, hãy bấm nút bên dưới để xem trước bản báo cáo.', {
+            bot.sendMessage(chatId, '📎 *Bước 3: Đính kèm (Tùy chọn)*\n\nBạn có thể gửi *Ảnh*, *Tài liệu* hoặc *Đường link* (http/https) đính kèm vào đây (gửi từng cái một).\n\nKhi nào xong, hãy bấm nút bên dưới để xem trước bản báo cáo.', {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: keyboard }
             }).then(m => {
@@ -188,6 +190,20 @@ export async function handleReportState(
 
                 // Send a temporary confirmation message that auto-deletes, instead of a new prompt
                 bot.sendMessage(chatId, '✅ Đã nhận 1 đính kèm. Bạn có thể gửi thêm hoặc bấm nút "Hoàn tất" ở trên.')
+                    .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+
+                return true;
+            } else if (msg.text && (msg.text.startsWith('http://') || msg.text.startsWith('https://'))) {
+                const fileId = msg.text;
+                const fileType = 'link';
+                const fileUniqueId = msg.text;
+
+                await db.query(
+                    'INSERT INTO report_attachments (report_id, file_id, file_type, file_unique_id) VALUES ($1, $2, $3, $4)',
+                    [session.tempData.reportId, fileId, fileType, fileUniqueId]
+                );
+
+                bot.sendMessage(chatId, '✅ Đã nhận 1 đường link đính kèm. Bạn có thể gửi thêm hoặc bấm nút "Hoàn tất" ở trên.')
                     .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
 
                 return true;
@@ -336,14 +352,14 @@ export async function handleReportCallback(
 
         let previewText = `📑 *XEM TRƯỚC BÁO CÁO ${typeText}*\n\n`;
         previewText += `👤 *Người báo cáo:* ${fullName}\n`;
-        previewText += `📅 *Thời gian:* ${new Date(report.created_at).toLocaleString('vi-VN')}\n`;
+        previewText += `📅 *Thời gian:* ${formatVNTime(report.created_at)}\n`;
         previewText += `📌 *Tiêu đề:* ${report.title}\n\n`;
         previewText += `📝 *Nội dung:* \n${report.content}\n\n`;
-        previewText += `📎 *Đính kèm:* ${attachments.length} file`;
+        previewText += `📎 *Đính kèm:* ${attachments.length} file/link`;
 
         const keyboard = [
             [
-                { text: '🚀 Gửi lên Group', callback_data: `rep_confirm_send_${reportId}` },
+                { text: '🚀 Lưu Báo cáo', callback_data: `rep_confirm_send_${reportId}` },
                 { text: '❌ Hủy bỏ', callback_data: `rep_cancel_${reportId}` }
             ]
         ];
@@ -363,63 +379,13 @@ export async function handleReportCallback(
         const report = reportRes.rows[0];
 
         if (!report.chat_id) {
-            bot.answerCallbackQuery(query.id, { text: '❌ Lỗi: Không tìm thấy Chat ID để gửi báo cáo.', show_alert: true });
+            bot.answerCallbackQuery(query.id, { text: '❌ Lỗi: Không tìm thấy Chat ID để lưu báo cáo.', show_alert: true });
             return true;
         }
 
-        const attachmentsRes = await db.query('SELECT * FROM report_attachments WHERE report_id = $1', [reportId]);
-        const attachments = attachmentsRes.rows;
-
-        const fullName = [query.from.first_name, query.from.last_name].filter(Boolean).join(' ');
-        const typeText = report.report_type === 'project' ? 'DỰ ÁN' : 'CÔNG VIỆC HẰNG NGÀY';
-
-        let reportText = `📢 *BÁO CÁO ${typeText} MỚI*\n\n`;
-        reportText += `👤 *Người báo cáo:* ${fullName}\n`;
-        reportText += `📅 *Thời gian:* ${new Date(report.created_at).toLocaleString('vi-VN')}\n`;
-        reportText += `📌 *Tiêu đề:* ${report.title}\n\n`;
-        reportText += `📝 *Nội dung:* \n${report.content}`;
-
-        // Send to group
         try {
-            if (attachments.length > 0) {
-                const photos = attachments.filter(a => a.file_type === 'photo');
-                const documents = attachments.filter(a => a.file_type === 'document');
-                let captionSent = false;
-
-                const sendGroup = async (items: any[], type: string) => {
-                    if (items.length === 0) return;
-
-                    for (let i = 0; i < items.length; i += 10) {
-                        const chunk = items.slice(i, i + 10);
-                        const media = chunk.map((att, index) => ({
-                            type: type,
-                            media: att.file_id,
-                            caption: (!captionSent && index === 0) ? reportText : undefined,
-                            parse_mode: 'Markdown'
-                        }));
-
-                        if (media.length === 1) {
-                            if (type === 'photo') {
-                                await bot.sendPhoto(report.chat_id, media[0].media, { caption: media[0].caption, parse_mode: 'Markdown', message_thread_id: report.topic_id });
-                            } else {
-                                await bot.sendDocument(report.chat_id, media[0].media, { caption: media[0].caption, parse_mode: 'Markdown', message_thread_id: report.topic_id });
-                            }
-                        } else {
-                            // @ts-ignore
-                            await bot.sendMediaGroup(report.chat_id, media, { message_thread_id: report.topic_id });
-                        }
-                        captionSent = true;
-                    }
-                };
-
-                await sendGroup(photos, 'photo');
-                await sendGroup(documents, 'document');
-            } else {
-                await bot.sendMessage(report.chat_id, reportText, { parse_mode: 'Markdown', message_thread_id: report.topic_id });
-            }
-
             await db.query('UPDATE reports SET status = $1 WHERE id = $2', ['submitted', reportId]);
-            bot.editMessageText('✅ *Báo cáo đã được gửi thành công lên Group!*', {
+            bot.editMessageText('✅ *Báo cáo đã được lưu thành công! Chỉ Admin mới có thể xem báo cáo này.*', {
                 chat_id: chatId,
                 message_id: query.message?.message_id,
                 parse_mode: 'Markdown'
@@ -431,8 +397,8 @@ export async function handleReportCallback(
             }, 120000);
             clearSession(userId);
         } catch (err) {
-            console.error('Error sending report to group:', err);
-            bot.answerCallbackQuery(query.id, { text: '❌ Lỗi khi gửi báo cáo lên Group. Vui lòng thử lại.', show_alert: true });
+            console.error('Error saving report:', err);
+            bot.answerCallbackQuery(query.id, { text: '❌ Lỗi khi lưu báo cáo. Vui lòng thử lại.', show_alert: true });
         }
         bot.answerCallbackQuery(query.id);
         return true;
@@ -466,8 +432,7 @@ export async function handleReportCallback(
         const isPrivate = query.message?.chat.type === 'private';
         const text = `📊 Bạn đã nộp tổng cộng ${count} báo cáo.`;
         const keyboard = [
-            [{ text: '📋 Xem danh sách báo cáo của tôi', callback_data: 'rep_my_list' }],
-            ([{ text: '🔙 Quay lại', callback_data: 'user_dashboard' }])
+            [{ text: '📋 Xem danh sách báo cáo của tôi', callback_data: 'rep_my_list' }]
         ];
 
         if (!isPrivate) {
@@ -490,7 +455,7 @@ export async function handleReportCallback(
             return true;
         }
         const res = await db.query(
-            'SELECT id, title, created_at FROM reports WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT 20',
+            'SELECT DISTINCT EXTRACT(YEAR FROM created_at) as year FROM reports WHERE user_id = $1 AND status = $2 ORDER BY year DESC',
             [userId, 'submitted']
         );
 
@@ -501,8 +466,8 @@ export async function handleReportCallback(
 
         const isPrivate = query.message?.chat.type === 'private';
         const keyboard = res.rows.map(r => [{
-            text: `📄 ${r.title} (${new Date(r.created_at).toLocaleDateString('vi-VN')})`,
-            callback_data: `rep_view_detail_${r.id}`
+            text: `📅 Năm ${r.year}`,
+            callback_data: `rep_my_year_${r.year}`
         }]);
 
         if (isPrivate) {
@@ -512,7 +477,68 @@ export async function handleReportCallback(
             keyboard.push([{ text: '🗑 Đóng', callback_data: 'reg_close_temp' }]);
         }
 
-        bot.editMessageText('📋 *DANH SÁCH BÁO CÁO CỦA BẠN:*', {
+        bot.editMessageText('📋 *CHỌN NĂM BÁO CÁO:*', {
+            chat_id: chatId,
+            message_id: query.message?.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(() => { });
+
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data.startsWith('rep_my_year_')) {
+        const year = parseInt(data.split('_')[3]);
+        const res = await db.query(
+            'SELECT DISTINCT EXTRACT(MONTH FROM created_at) as month FROM reports WHERE user_id = $1 AND status = $2 AND EXTRACT(YEAR FROM created_at) = $3 ORDER BY month DESC',
+            [userId, 'submitted', year]
+        );
+
+        const isPrivate = query.message?.chat.type === 'private';
+        const keyboard = res.rows.map(r => [{
+            text: `📆 Tháng ${r.month} năm ${year}`,
+            callback_data: `rep_my_month_${year}_${r.month}`
+        }]);
+
+        keyboard.push([{ text: '🔙 Quay lại', callback_data: 'rep_my_list' }]);
+        if (!isPrivate) {
+            keyboard.push([{ text: '🗑 Đóng', callback_data: 'reg_close_temp' }]);
+        }
+
+        bot.editMessageText(`📋 *CHỌN THÁNG BÁO CÁO (NĂM ${year}):*`, {
+            chat_id: chatId,
+            message_id: query.message?.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(() => { });
+
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data.startsWith('rep_my_month_')) {
+        const parts = data.split('_');
+        const year = parseInt(parts[3]);
+        const month = parseInt(parts[4]);
+
+        const res = await db.query(
+            'SELECT id, title, created_at FROM reports WHERE user_id = $1 AND status = $2 AND EXTRACT(YEAR FROM created_at) = $3 AND EXTRACT(MONTH FROM created_at) = $4 ORDER BY created_at DESC',
+            [userId, 'submitted', year, month]
+        );
+
+        const isPrivate = query.message?.chat.type === 'private';
+        const keyboard = res.rows.map(r => [{
+            text: `📄 ${r.title} (${formatVNDate(r.created_at)})`,
+            callback_data: `rep_view_detail_${r.id}`
+        }]);
+
+        keyboard.push([{ text: '🔙 Quay lại', callback_data: `rep_my_year_${year}` }]);
+        if (!isPrivate) {
+            keyboard.push([{ text: '🗑 Đóng', callback_data: 'reg_close_temp' }]);
+        }
+
+        bot.editMessageText(`📋 *DANH SÁCH BÁO CÁO THÁNG ${month}/${year}:*`, {
             chat_id: chatId,
             message_id: query.message?.message_id,
             parse_mode: 'Markdown',
@@ -550,7 +576,6 @@ export async function handleReportCallback(
             callback_data: `rep_view_detail_${r.id}`
         }]);
 
-        keyboard.push([{ text: '🔙 Quay lại', callback_data: 'admin_manage_reports' }]);
         if (!isPrivate) {
             keyboard.push([{ text: '🗑 Đóng', callback_data: 'reg_close_temp' }]);
         }
@@ -625,7 +650,7 @@ export async function handleReportCallback(
         );
 
         const keyboard = res.rows.map(r => [{
-            text: `📄 ${r.title} (${new Date(r.created_at).toLocaleDateString('vi-VN')})`,
+            text: `📄 ${r.title} (${formatVNDate(r.created_at)})`,
             callback_data: `rep_view_detail_${r.id}`
         }]);
 
@@ -757,10 +782,10 @@ export async function handleReportCallback(
 
         let detailText = `📄 *CHI TIẾT BÁO CÁO ${typeText}*\n\n`;
         detailText += `👤 *Người báo cáo:* ${fullName} ${report.username ? `(@${report.username})` : ''}\n`;
-        detailText += `📅 *Thời gian:* ${new Date(report.created_at).toLocaleString('vi-VN')}\n`;
+        detailText += `📅 *Thời gian:* ${formatVNTime(report.created_at)}\n`;
         detailText += `📌 *Tiêu đề:* ${report.title}\n\n`;
         detailText += `📝 *Nội dung:* \n${report.content}\n\n`;
-        detailText += `📎 *Đính kèm:* ${attachments.length} file`;
+        detailText += `📎 *Đính kèm:* ${attachments.length} file/link`;
 
         const isPrivate = query.message?.chat.type === 'private';
         const topicId = query.message?.message_thread_id;
@@ -785,7 +810,9 @@ export async function handleReportCallback(
         if (attachments.length > 0) {
             for (const att of attachments) {
                 let attMsg;
-                if (att.file_type === 'photo') {
+                if (att.file_type === 'link') {
+                    attMsg = await bot.sendMessage(chatId, `🔗 Link: ${att.file_id}`, { message_thread_id: topicId });
+                } else if (att.file_type === 'photo') {
                     attMsg = await bot.sendPhoto(chatId, att.file_id, { message_thread_id: topicId });
                 } else {
                     attMsg = await bot.sendDocument(chatId, att.file_id, { message_thread_id: topicId });

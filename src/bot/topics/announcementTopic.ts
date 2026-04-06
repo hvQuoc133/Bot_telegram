@@ -3,6 +3,7 @@ import { db } from '../../db';
 import { updateSession, clearSession, getSession } from '../services/sessionManager';
 import { botUsername } from '../botInstance';
 import { sendAnnouncementDashboard } from './topicManager';
+import { formatVNTime } from '../utils/dateUtils';
 
 export async function handleAnnouncementDeepLink(
     bot: TelegramBot,
@@ -45,19 +46,20 @@ export async function handleAnnouncementDeepLink(
         let text = `📢 *ĐANG SỬA THÔNG BÁO*\n\n`;
         text += `*Tiêu đề:* ${ann.title}\n`;
         text += `*Nội dung:* ${ann.content.substring(0, 100)}...\n`;
-        if (ann.event_start_time) text += `*Bắt đầu:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')}\n`;
-        if (ann.event_end_time) text += `*Kết thúc:* ${new Date(ann.event_end_time).toLocaleString('vi-VN')}\n`;
+        if (ann.event_start_time) text += `*Bắt đầu:* ${formatVNTime(ann.event_start_time)}\n`;
+        if (ann.event_end_time) text += `*Kết thúc:* ${formatVNTime(ann.event_end_time)}\n`;
 
         const keyboard: InlineKeyboardButton[][] = [
             [{ text: '📝 Sửa Tiêu đề', callback_data: `ann_edit_field_title_${id}` }],
             [{ text: '📄 Sửa Nội dung', callback_data: `ann_edit_field_content_${id}` }],
             [{ text: '🕒 Sửa Thời gian', callback_data: `ann_edit_field_time_${id}` }],
-            [{ text: '🔙 Hủy', callback_data: `ann_edit_cancel_${id}` }]
+            [{ text: '❌ Đóng', callback_data: `info_close_message` }]
         ];
 
         bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } })
             .then(m => {
                 updateSession(userId, { state: 'idle', tempData: { id, title: ann.title, content: ann.content, scheduledAt: ann.scheduled_at, promptMessageId: m.message_id } });
+                setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 15000);
             });
         return true;
     }
@@ -74,18 +76,18 @@ async function saveNewAnnouncement(bot: TelegramBot, chatId: number, userId: num
             [title, content, eventStartTime, eventEndTime, scheduledAt, userId, scheduledAt ? 'scheduled' : 'published']
         );
 
-        bot.sendMessage(chatId, `✅ Đã tạo thông báo thành công!\n\nTiêu đề: ${title}\nTrạng thái: ${scheduledAt ? `Đã lên lịch vào ${scheduledAt.toLocaleString('vi-VN')}` : 'Đã gửi ngay'}`);
+        bot.sendMessage(chatId, `✅ Đã tạo thông báo thành công!\n\nTiêu đề: ${title}\nTrạng thái: ${scheduledAt ? `Đã lên lịch vào ${formatVNTime(scheduledAt)}` : 'Đã gửi ngay'}`);
 
         if (!scheduledAt) {
             const topicsRes = await db.query("SELECT chat_id, topic_id FROM topics WHERE feature_type = 'announcement'");
 
             let timeText = '';
             if (eventStartTime && eventEndTime) {
-                timeText = `\n⏰ *Thời gian:* ${eventStartTime.toLocaleString('vi-VN')} - ${eventEndTime.toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Thời gian:* ${formatVNTime(eventStartTime)} - ${formatVNTime(eventEndTime)}\n`;
             } else if (eventStartTime) {
-                timeText = `\n⏰ *Bắt đầu:* ${eventStartTime.toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Bắt đầu:* ${formatVNTime(eventStartTime)}\n`;
             } else if (eventEndTime) {
-                timeText = `\n⏰ *Kết thúc:* ${eventEndTime.toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Kết thúc:* ${formatVNTime(eventEndTime)}\n`;
             }
 
             const msgText = `📢 *THÔNG BÁO*\n\n*${title}*${timeText}\n${content}`;
@@ -119,11 +121,11 @@ async function broadcastUpdatedAnnouncement(bot: TelegramBot, id: number) {
 
         let timeText = '';
         if (ann.event_start_time && ann.event_end_time) {
-            timeText = `\n⏰ *Thời gian:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')} - ${new Date(ann.event_end_time).toLocaleString('vi-VN')}\n`;
+            timeText = `\n⏰ *Thời gian:* ${formatVNTime(ann.event_start_time)} - ${formatVNTime(ann.event_end_time)}\n`;
         } else if (ann.event_start_time) {
-            timeText = `\n⏰ *Bắt đầu:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')}\n`;
+            timeText = `\n⏰ *Bắt đầu:* ${formatVNTime(ann.event_start_time)}\n`;
         } else if (ann.event_end_time) {
-            timeText = `\n⏰ *Kết thúc:* ${new Date(ann.event_end_time).toLocaleString('vi-VN')}\n`;
+            timeText = `\n⏰ *Kết thúc:* ${formatVNTime(ann.event_end_time)}\n`;
         }
 
         const msgText = `📢 *THÔNG BÁO CẬP NHẬT*\n\n*${ann.title}*${timeText}\n${ann.content}`;
@@ -152,18 +154,18 @@ async function updateAnnouncement(bot: TelegramBot, chatId: number, userId: numb
             [title, content, eventStartTime, eventEndTime, scheduledAt, scheduledAt ? 'scheduled' : 'published', id]
         );
 
-        bot.sendMessage(chatId, `✅ Đã cập nhật thông báo thành công!\n\nTiêu đề: ${title}\nTrạng thái: ${scheduledAt ? `Đã lên lịch vào ${scheduledAt.toLocaleString('vi-VN')}` : 'Đã gửi ngay'}`);
+        bot.sendMessage(chatId, `✅ Đã cập nhật thông báo thành công!\n\nTiêu đề: ${title}\nTrạng thái: ${scheduledAt ? `Đã lên lịch vào ${formatVNTime(scheduledAt)}` : 'Đã gửi ngay'}`);
 
         if (!scheduledAt) {
             const topicsRes = await db.query("SELECT chat_id, topic_id FROM topics WHERE feature_type = 'announcement'");
 
             let timeText = '';
             if (eventStartTime && eventEndTime) {
-                timeText = `\n⏰ *Thời gian:* ${eventStartTime.toLocaleString('vi-VN')} - ${eventEndTime.toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Thời gian:* ${formatVNTime(eventStartTime)} - ${formatVNTime(eventEndTime)}\n`;
             } else if (eventStartTime) {
-                timeText = `\n⏰ *Bắt đầu:* ${eventStartTime.toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Bắt đầu:* ${formatVNTime(eventStartTime)}\n`;
             } else if (eventEndTime) {
-                timeText = `\n⏰ *Kết thúc:* ${eventEndTime.toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Kết thúc:* ${formatVNTime(eventEndTime)}\n`;
             }
 
             const msgText = `📢 *THÔNG BÁO CẬP NHẬT*\n\n*${title}*${timeText}\n${content}`;
@@ -578,7 +580,7 @@ export async function handleAnnouncementCallback(
         } else {
             res.rows.forEach(row => {
                 const status = row.status === 'published' ? '✅' : (row.status === 'scheduled' ? '⏳' : '❌');
-                const date = row.scheduled_at ? new Date(row.scheduled_at).toLocaleString('vi-VN') : 'Ngay lập tức';
+                const date = row.scheduled_at ? formatVNTime(row.scheduled_at) : 'Ngay lập tức';
                 keyboard.push([{ text: `${status} ${row.title} (${date})`, callback_data: `ann_admin_view_${row.id}` }]);
             });
         }
@@ -608,7 +610,7 @@ export async function handleAnnouncementCallback(
         } else {
             res.rows.forEach(row => {
                 const status = row.status === 'published' ? '✅' : '⏳';
-                const date = new Date(row.created_at).toLocaleString('vi-VN');
+                const date = formatVNTime(row.created_at);
                 keyboard.push([{ text: `${status} ${row.title} (${date})`, callback_data: `ann_admin_view_${row.id}` }]);
             });
         }
@@ -637,15 +639,15 @@ export async function handleAnnouncementCallback(
 
         const ann = res.rows[0];
         const status = ann.status === 'published' ? 'Đã gửi' : (ann.status === 'scheduled' ? 'Đã lên lịch' : 'Đã hủy');
-        const date = ann.scheduled_at ? new Date(ann.scheduled_at).toLocaleString('vi-VN') : 'Ngay lập tức';
+        const date = ann.scheduled_at ? formatVNTime(ann.scheduled_at) : 'Ngay lập tức';
 
         let timeText = '';
         if (ann.event_start_time && ann.event_end_time) {
-            timeText = `\n*Thời gian sự kiện:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')} - ${new Date(ann.event_end_time).toLocaleString('vi-VN')}`;
+            timeText = `\n*Thời gian sự kiện:* ${formatVNTime(ann.event_start_time)} - ${formatVNTime(ann.event_end_time)}`;
         } else if (ann.event_start_time) {
-            timeText = `\n*Bắt đầu sự kiện:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')}`;
+            timeText = `\n*Bắt đầu sự kiện:* ${formatVNTime(ann.event_start_time)}`;
         } else if (ann.event_end_time) {
-            timeText = `\n*Kết thúc sự kiện:* ${new Date(ann.event_end_time).toLocaleString('vi-VN')}`;
+            timeText = `\n*Kết thúc sự kiện:* ${formatVNTime(ann.event_end_time)}`;
         }
 
         const text = `📢 *CHI TIẾT THÔNG BÁO*\n\n*Tiêu đề:* ${ann.title}\n*Trạng thái:* ${status}\n*Thời gian gửi:* ${date}${timeText}\n\n*Nội dung:*\n${ann.content}`;
@@ -679,7 +681,7 @@ export async function handleAnnouncementCallback(
             text += 'Hiện tại chưa có thông báo nào.';
         } else {
             res.rows.forEach(row => {
-                const date = row.scheduled_at ? new Date(row.scheduled_at).toLocaleString('vi-VN') : 'Ngay lập tức';
+                const date = row.scheduled_at ? formatVNTime(row.scheduled_at) : 'Ngay lập tức';
                 keyboard.push([{ text: `📌 ${row.title}`, callback_data: `ann_user_view_${row.id}` }]);
             });
         }
@@ -709,11 +711,11 @@ export async function handleAnnouncementCallback(
 
         let timeText = '';
         if (ann.event_start_time && ann.event_end_time) {
-            timeText = `\n*Thời gian:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')} - ${new Date(ann.event_end_time).toLocaleString('vi-VN')}`;
+            timeText = `\n*Thời gian:* ${formatVNTime(ann.event_start_time)} - ${formatVNTime(ann.event_end_time)}`;
         } else if (ann.event_start_time) {
-            timeText = `\n*Bắt đầu:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')}`;
+            timeText = `\n*Bắt đầu:* ${formatVNTime(ann.event_start_time)}`;
         } else if (ann.event_end_time) {
-            timeText = `\n*Kết thúc:* ${new Date(ann.event_end_time).toLocaleString('vi-VN')}`;
+            timeText = `\n*Kết thúc:* ${formatVNTime(ann.event_end_time)}`;
         }
 
         const text = `📢 *CHI TIẾT THÔNG BÁO*\n\n*Tiêu đề:* ${ann.title}${timeText}\n\n*Nội dung:*\n${ann.content}`;

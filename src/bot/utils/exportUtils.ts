@@ -1,3 +1,4 @@
+import { formatVNTime, formatVNDate } from './dateUtils';
 import ExcelJS from 'exceljs';
 import archiver from 'archiver';
 import fs from 'fs';
@@ -34,7 +35,7 @@ export async function exportReportsToExcel(month: string, year: string): Promise
 
     for (let i = 0; i < res.rows.length; i++) {
         const row = res.rows[i];
-        const dateStr = new Date(row.created_at).toLocaleString('vi-VN');
+        const dateStr = formatVNTime(row.created_at);
         const fullName = [row.first_name, row.last_name].filter(Boolean).join(' ');
         const nameStr = `${fullName} ${row.username ? `(@${row.username})` : ''}`.trim();
         const typeStr = row.report_type === 'project' ? 'Dự án' : 'Hằng ngày';
@@ -75,7 +76,7 @@ export async function exportReportToZip(bot: TelegramBot, reportId: number): Pro
     if (res.rows.length === 0) return null;
 
     const report = res.rows[0];
-    const dateStr = new Date(report.created_at).toLocaleString('vi-VN').replace(/[:/]/g, '-');
+    const dateStr = formatVNTime(report.created_at).replace(/[:/]/g, '-');
     const fullName = [report.first_name, report.last_name].filter(Boolean).join(' ');
     const nameStr = `${fullName}_${report.username || ''}`.trim().replace(/\s+/g, '_');
     const typeStr = report.report_type === 'project' ? 'DỰ ÁN' : 'CÔNG VIỆC HẰNG NGÀY';
@@ -93,7 +94,7 @@ export async function exportReportToZip(bot: TelegramBot, reportId: number): Pro
         (async () => {
             try {
                 // Add text content
-                const textContent = `BÁO CÁO ${typeStr}\n\nNgười gửi: ${fullName} ${report.username ? `(@${report.username})` : ''}\nNgày gửi: ${new Date(report.created_at).toLocaleString('vi-VN')}\nTiêu đề: ${report.title || 'Không có tiêu đề'}\n\nNội dung:\n${report.content || 'Không có nội dung'}`;
+                const textContent = `BÁO CÁO ${typeStr}\n\nNgười gửi: ${fullName} ${report.username ? `(@${report.username})` : ''}\nNgày gửi: ${formatVNTime(report.created_at)}\nTiêu đề: ${report.title || 'Không có tiêu đề'}\n\nNội dung:\n${report.content || 'Không có nội dung'}`;
                 archive.append(textContent, { name: 'noidung.txt' });
 
                 // Add files

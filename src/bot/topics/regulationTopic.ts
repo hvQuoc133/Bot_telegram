@@ -1,3 +1,4 @@
+import { formatVNDate } from '../utils/dateUtils';
 import TelegramBot from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { getSession, updateSession, clearSession, roleCache, topicCache, CACHE_TTL } from '../services/sessionManager';
@@ -67,7 +68,7 @@ export async function refreshAllRegulationTopics(bot: TelegramBot) {
 
         const now = new Date();
         const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const dateStr = now.toLocaleDateString('vi-VN');
+        const dateStr = formatVNDate(now);
         const text = '📜 *DANH SÁCH NỘI QUY CÔNG TY*\n\n' +
             (regs.rows.length > 0 ? 'Chọn một mục bên dưới để xem chi tiết:' : 'Hiện tại chưa có nội quy nào.') +
             `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -112,7 +113,7 @@ export async function refreshAllRegulationTopics(bot: TelegramBot) {
     }
 }
 
-export async function sendRegulationList(bot: TelegramBot, chatId: number, userRole: string) {
+export async function sendRegulationList(bot: TelegramBot, chatId: number, userRole: string, messageThreadId?: number) {
     const regs = await db.query('SELECT id, title FROM regulations ORDER BY created_at DESC');
     const keyboard = regs.rows.length > 0
         ? regs.rows.map(r => [{ text: r.title, callback_data: `reg_view_${r.id}` }])
@@ -126,6 +127,7 @@ export async function sendRegulationList(bot: TelegramBot, chatId: number, userR
     const text = regs.rows.length > 0 ? '📚 Danh sách Nội quy công ty:' : 'Hiện tại chưa có nội quy nào.';
 
     return bot.sendMessage(chatId, text, {
+        message_thread_id: messageThreadId,
         reply_markup: { inline_keyboard: keyboard }
     }).then(m => {
         setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 60000);
@@ -191,7 +193,7 @@ export async function handleRegulationCommand(
     }
 
     if (command === '/regulations') {
-        await sendRegulationList(bot, chatId, userRole);
+        await sendRegulationList(bot, chatId, userRole, replyOptions?.message_thread_id);
         return true;
     }
 
@@ -303,6 +305,7 @@ export async function handleRegulationState(
         if (session.tempData?.promptMessageId) bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
         bot.sendMessage(chatId, '✅ Đã hủy thao tác.', {
+            message_thread_id: msg.message_thread_id,
             reply_markup: { inline_keyboard: [[{ text: '🔙 Quay lại Quản lý Nội quy', callback_data: 'admin_manage_regs' }]] }
         });
 
@@ -317,12 +320,12 @@ export async function handleRegulationState(
     switch (session.state) {
         case 'selecting_edit_regulation':
         case 'selecting_delete_regulation':
-            bot.sendMessage(chatId, '⚠️ Vui lòng click vào nút của nội quy bạn muốn chọn ở tin nhắn trên, hoặc gõ /cancel để hủy thao tác.')
+            bot.sendMessage(chatId, '⚠️ Vui lòng click vào nút của nội quy bạn muốn chọn ở tin nhắn trên, hoặc gõ /cancel để hủy thao tác.', { message_thread_id: msg.message_thread_id })
                 .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 30000));
             return true;
         case 'creating_regulation_step_1':
             if (session.tempData?.promptMessageId) bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
-            bot.sendMessage(chatId, '✍️ Vui lòng nhập nội dung chi tiết của Nội quy:\n(/cancel để hủy)')
+            bot.sendMessage(chatId, '✍️ Vui lòng nhập nội dung chi tiết của Nội quy:\n(/cancel để hủy)', { message_thread_id: msg.message_thread_id })
                 .then(m => {
                     updateSession(userId, { state: 'creating_regulation_step_2', tempData: { title: text, promptMessageId: m.message_id } });
                 });
@@ -333,7 +336,7 @@ export async function handleRegulationState(
             const content = text;
             await db.query('INSERT INTO regulations (title, content, created_by) VALUES ($1, $2, $3)', [title, content, userId]);
             clearSession(userId);
-            await bot.sendMessage(chatId, '✅ Tạo Nội quy thành công!')
+            await bot.sendMessage(chatId, '✅ Tạo Nội quy thành công!', { message_thread_id: msg.message_thread_id })
                 .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 15000));
             await refreshAllRegulationTopics(bot);
             await broadcastRegulationUpdate(bot);
@@ -361,7 +364,7 @@ export async function handleRegulationState(
 
                 await db.query(updateQuery, updateParams);
 
-                bot.sendMessage(chatId, '✅ Đã cập nhật nội quy thành công!').then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
+                bot.sendMessage(chatId, '✅ Đã cập nhật nội quy thành công!', { message_thread_id: msg.message_thread_id }).then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
 
                 await refreshAllRegulationTopics(bot);
                 await broadcastRegulationUpdate(bot);
@@ -383,7 +386,7 @@ export async function handleRegulationState(
 
             } catch (err) {
                 console.error('Error updating regulation:', err);
-                bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật nội quy.');
+                bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi cập nhật nội quy.', { message_thread_id: msg.message_thread_id });
             }
 
             clearSession(userId);
@@ -460,7 +463,7 @@ export async function handleRegulationCallback(
         return true;
     } else if (data === 'reg_list') {
         bot.deleteMessage(chatId, messageId).catch(() => { });
-        await sendRegulationList(bot, chatId, userRole);
+        await sendRegulationList(bot, chatId, userRole, query.message?.message_thread_id);
         bot.answerCallbackQuery(query.id);
         return true;
     } else if (data === 'reg_close_temp') {
@@ -474,7 +477,7 @@ export async function handleRegulationCallback(
         return true;
     } else if (data === 'reg_back') {
         bot.deleteMessage(chatId, messageId).catch(() => { });
-        await sendRegulationList(bot, chatId, userRole);
+        await sendRegulationList(bot, chatId, userRole, query.message?.message_thread_id);
         bot.answerCallbackQuery(query.id);
         return true;
     } else if (data === 'reg_edit_list' || data === 'reg_delete_list') {
@@ -506,7 +509,7 @@ export async function handleRegulationCallback(
             bot.answerCallbackQuery(query.id, { text: '❌ Bạn không có quyền.', show_alert: true });
             return true;
         }
-        bot.sendMessage(chatId, '📝 Vui lòng nhập tiêu đề cho Nội quy mới:')
+        bot.sendMessage(chatId, '📝 Vui lòng nhập tiêu đề cho Nội quy mới:', { message_thread_id: query.message?.message_thread_id })
             .then(m => {
                 updateSession(userId, { state: 'creating_regulation_step_1', tempData: { promptMessageId: m.message_id } });
             });
@@ -521,7 +524,7 @@ export async function handleRegulationCallback(
         if (field === 'title') promptText = '📝 Vui lòng nhập *Tiêu đề* mới cho Nội quy:';
         if (field === 'content') promptText = '📄 Vui lòng nhập *Nội dung* mới cho Nội quy:';
 
-        bot.sendMessage(chatId, promptText, { parse_mode: 'Markdown' }).then(m => {
+        bot.sendMessage(chatId, promptText, { message_thread_id: query.message?.message_thread_id, parse_mode: 'Markdown' }).then(m => {
             updateSession(userId, {
                 state: `editing_regulation_${field}` as any,
                 tempData: { ...session.tempData, regId, promptMessageId: m.message_id, viewMessageId: messageId }
@@ -533,7 +536,7 @@ export async function handleRegulationCallback(
         const regId = data.split('_')[3];
         await db.query('UPDATE regulations SET locked_by = NULL, locked_at = NULL WHERE id = $1', [regId]);
         bot.deleteMessage(chatId, messageId).catch(() => { });
-        bot.sendMessage(chatId, '✅ Đã hủy chỉnh sửa nội quy.').then(m => {
+        bot.sendMessage(chatId, '✅ Đã hủy chỉnh sửa nội quy.', { message_thread_id: query.message?.message_thread_id }).then(m => {
             setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 15000);
         });
         clearSession(userId);
@@ -608,6 +611,7 @@ export async function handleRegulationCallback(
         ];
 
         bot.sendMessage(chatId, '⚠️ Bạn có chắc chắn muốn xóa nội quy này không?', {
+            message_thread_id: query.message?.message_thread_id,
             reply_markup: { inline_keyboard: keyboard }
         }).then(m => {
             updateSession(userId, { tempData: { ...getSession(userId).tempData, promptMessageId: m.message_id } });

@@ -10,7 +10,22 @@ if (!token) {
   process.exit(1);
 }
 
-export const bot = new TelegramBot(token, { polling: true });
+export const bot = new TelegramBot(token, {
+  polling: {
+    interval: 300,
+    autoStart: true,
+    params: {
+      timeout: 10
+    }
+  }
+});
+
+bot.on('polling_error', (error: any) => {
+  console.error('Polling Error:', error.code, error.message);
+  if (error.code === 'EFATAL' || error.code === 'ETIMEDOUT') {
+    console.log('Network error detected. Bot will attempt to reconnect automatically.');
+  }
+});
 
 export let botUsername = '';
 bot.getMe().then(me => {

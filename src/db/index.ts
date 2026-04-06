@@ -147,8 +147,10 @@ export async function initDb() {
       );
 
       ALTER TABLE announcements ALTER COLUMN scheduled_at DROP NOT NULL;
-      ALTER TABLE announcements ADD COLUMN IF NOT EXISTS event_start_time TIMESTAMP;
-      ALTER TABLE announcements ADD COLUMN IF NOT EXISTS event_end_time TIMESTAMP;
+      ALTER TABLE announcements ADD COLUMN IF NOT EXISTS event_start_time TIMESTAMPTZ;
+      ALTER TABLE announcements ADD COLUMN IF NOT EXISTS event_end_time TIMESTAMPTZ;
+      ALTER TABLE announcements ALTER COLUMN event_start_time TYPE TIMESTAMPTZ USING event_start_time AT TIME ZONE 'UTC';
+      ALTER TABLE announcements ALTER COLUMN event_end_time TYPE TIMESTAMPTZ USING event_end_time AT TIME ZONE 'UTC';
 
       -- Add unique constraint if it doesn't exist
       DO $$
@@ -158,15 +160,25 @@ export async function initDb() {
         END IF;
       END
       $$;
+
+      CREATE TABLE IF NOT EXISTS proposal_categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        created_by BIGINT REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS proposals (
         id SERIAL PRIMARY KEY,
         proposal_code VARCHAR(50) UNIQUE NOT NULL,
         user_id BIGINT NOT NULL REFERENCES users(id),
         chat_id BIGINT NOT NULL,
         topic_id BIGINT DEFAULT 0,
-        type VARCHAR(50) NOT NULL,
+        type VARCHAR(255) NOT NULL,
         content TEXT NOT NULL,
         apply_time TEXT,
+        start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
         cost TEXT,
         file_id TEXT,
         file_type VARCHAR(20),
@@ -177,6 +189,12 @@ export async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE proposals ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
+      ALTER TABLE proposals ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;
+      ALTER TABLE proposals ALTER COLUMN start_time TYPE TIMESTAMPTZ USING start_time AT TIME ZONE 'UTC';
+      ALTER TABLE proposals ALTER COLUMN end_time TYPE TIMESTAMPTZ USING end_time AT TIME ZONE 'UTC';
+      ALTER TABLE proposals ALTER COLUMN type TYPE VARCHAR(255);
 
       CREATE TABLE IF NOT EXISTS tool_categories (
         id SERIAL PRIMARY KEY,

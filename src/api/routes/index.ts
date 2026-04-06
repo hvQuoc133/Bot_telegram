@@ -1,3 +1,4 @@
+import { formatVNTime, formatVNDate } from '../../bot/utils/dateUtils';
 import { Router } from 'express';
 import { db } from '../../db';
 import { bot } from '../../bot/botInstance';
@@ -40,6 +41,7 @@ router.post('/webhook/contact', async (req, res) => {
     const { chat_id, topic_id } = topicRes.rows[0];
     console.log(`[Webhook] ✅ Found topic. Chat ID: ${chat_id}, Topic ID: ${topic_id}`);
 
+    // Hàm escape HTML để tránh lỗi khi khách hàng nhập ký tự đặc biệt (<, >, &)
     const escapeHtml = (text: string) => {
       return (text || '').toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     };
@@ -50,8 +52,10 @@ router.post('/webhook/contact', async (req, res) => {
     const safeService = escapeHtml(service).trim();
     const safeMessage = escapeHtml(message).trim();
 
-    const timeString = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    // Lấy thời gian hiện tại theo múi giờ Việt Nam
+    const timeString = formatVNTime(new Date());
 
+    // Format the message using HTML for better styling and safety
     const text = `🚨 <b>CÓ KHÁCH HÀNG LIÊN HỆ MỚI</b> 🚨\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
       `👤 <b>Khách hàng:</b> ${safeName ? safeName : '<i>Không cung cấp</i>'}\n` +

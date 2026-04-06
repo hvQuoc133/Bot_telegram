@@ -1,3 +1,4 @@
+import { formatVNTime, formatVNDate } from '../utils/dateUtils';
 import { bot } from '../botInstance';
 import { db } from '../../db';
 
@@ -28,11 +29,11 @@ export async function checkScheduledAnnouncements() {
         for (const ann of res.rows) {
             let timeText = '';
             if (ann.event_start_time && ann.event_end_time) {
-                timeText = `\n⏰ *Thời gian:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')} - ${new Date(ann.event_end_time).toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Thời gian:* ${formatVNTime(ann.event_start_time)} - ${formatVNTime(ann.event_end_time)}\n`;
             } else if (ann.event_start_time) {
-                timeText = `\n⏰ *Bắt đầu:* ${new Date(ann.event_start_time).toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Bắt đầu:* ${formatVNTime(ann.event_start_time)}\n`;
             } else if (ann.event_end_time) {
-                timeText = `\n⏰ *Kết thúc:* ${new Date(ann.event_end_time).toLocaleString('vi-VN')}\n`;
+                timeText = `\n⏰ *Kết thúc:* ${formatVNTime(ann.event_end_time)}\n`;
             }
 
             const text = `📢 *THÔNG BÁO*\n\n*${ann.title}*${timeText}\n${ann.content}`;

@@ -1,3 +1,4 @@
+import { formatVNDate } from '../utils/dateUtils';
 import TelegramBot, { InlineKeyboardButton } from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { SessionData, updateSession, clearSession, getSession } from '../services/sessionManager';
@@ -12,7 +13,7 @@ export async function refreshAllDocumentTopics(bot: TelegramBot) {
 
         const now = new Date();
         const timeStr = now.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const dateStr = now.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+        const dateStr = formatVNDate(now);
         const text = '📁 *DANH SÁCH TÀI LIỆU BIỂU MẪU*\n\n' +
             (docs.rows.length > 0 ? 'Chọn một tài liệu bên dưới để xem và tải xuống:' : 'Hiện tại chưa có tài liệu nào.') +
             `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;

@@ -1,3 +1,4 @@
+import { formatVNDate } from '../utils/dateUtils';
 import TelegramBot, { InlineKeyboardButton } from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { SessionData, updateSession, clearSession, getSession } from '../services/sessionManager';
@@ -33,7 +34,7 @@ export async function refreshAllToolsTopics(bot: TelegramBot) {
 
         const now = new Date();
         const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const dateStr = now.toLocaleDateString('vi-VN');
+        const dateStr = formatVNDate(now);
         const text = '🛠 *DANH SÁCH CÔNG CỤ*\n\n' +
             (cats.rows.length > 0 ? 'Chọn một danh mục bên dưới để xem các công cụ:' : 'Hiện tại chưa có công cụ nào.') +
             `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -908,7 +909,7 @@ async function sendToolDetails(bot: TelegramBot, chatId: number, toolId: number,
         if (tool.description) text += `📝 Mô tả: ${tool.description}\n`;
         if (tool.link) text += `🔗 Link: ${tool.link}\n`;
 
-        const dateAdded = new Date(tool.created_at).toLocaleDateString('vi-VN');
+        const dateAdded = formatVNDate(tool.created_at);
         text += `\n👤 Thêm bởi: ${tool.creator_name || 'Người dùng'}\n`;
         text += `📅 Ngày thêm: ${dateAdded}`;
 

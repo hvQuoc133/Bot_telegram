@@ -1,3 +1,4 @@
+import { formatVNDate } from '../utils/dateUtils';
 import TelegramBot from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { getSession, updateSession, clearSession, topicCache, CACHE_TTL } from '../services/sessionManager';
@@ -46,7 +47,7 @@ export async function refreshAllInfoTopics(bot: TelegramBot) {
 
         const now = new Date();
         const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const dateStr = now.toLocaleDateString('vi-VN');
+        const dateStr = formatVNDate(now);
         const text = '📇 *DANH SÁCH NHÂN SỰ CÔNG TY*\n\n' +
             (users.rows.length > 0 ? 'Chọn một thành viên bên dưới để xem thông tin chi tiết:' : 'Hiện tại chưa có thông tin nhân sự nào.') +
             `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -235,7 +236,7 @@ export async function handleInfoCallback(
         if (userRole !== 'admin') { bot.answerCallbackQuery(query.id, { text: '❌ Bạn không có quyền.', show_alert: true }); return true; }
 
         bot.deleteMessage(chatId, messageId).catch(() => { });
-        bot.sendMessage(chatId, '📇 *THÊM NHÂN SỰ MỚI*\n\nVui lòng nhập Họ và Tên của nhân sự:\n(/cancel để hủy)', { parse_mode: 'Markdown' })
+        bot.sendMessage(chatId, '📇 *THÊM NHÂN SỰ MỚI*\n\nVui lòng nhập Họ và Tên của nhân sự:\n(/cancel để hủy)', { message_thread_id: query.message?.message_thread_id, parse_mode: 'Markdown' })
             .then(m => {
                 updateSession(userId, { state: 'adding_personnel_name', tempData: { promptMessageId: m.message_id } });
             });
@@ -273,7 +274,7 @@ export async function handleInfoCallback(
             ]
         };
 
-        bot.sendMessage(chatId, textMsg, { parse_mode: 'Markdown', reply_markup: keyboard });
+        bot.sendMessage(chatId, textMsg, { message_thread_id: query.message?.message_thread_id, parse_mode: 'Markdown', reply_markup: keyboard });
         bot.answerCallbackQuery(query.id);
         return true;
     }
@@ -292,7 +293,7 @@ export async function handleInfoCallback(
         if (field === 'phone') { promptText = '📞 Vui lòng nhập *Số điện thoại* mới:'; state = 'editing_personnel_phone'; }
         if (field === 'email') { promptText = '📧 Vui lòng nhập *Email* mới:'; state = 'editing_personnel_email'; }
 
-        bot.sendMessage(chatId, promptText, { parse_mode: 'Markdown' }).then(m => {
+        bot.sendMessage(chatId, promptText, { message_thread_id: query.message?.message_thread_id, parse_mode: 'Markdown' }).then(m => {
             updateSession(userId, {
                 state: state as any,
                 tempData: { ...(session.tempData || {}), profileId: parseInt(id), promptMessageId: m.message_id, viewMessageId: messageId }
@@ -305,6 +306,7 @@ export async function handleInfoCallback(
     if (data.startsWith('info_edit_cancel_')) {
         bot.deleteMessage(chatId, messageId).catch(() => { });
         bot.sendMessage(chatId, '✅ Đã hủy chỉnh sửa thông tin nhân sự.', {
+            message_thread_id: query.message?.message_thread_id,
             reply_markup: { inline_keyboard: [[{ text: '🔙 Quay lại Quản lý Nhân sự', callback_data: 'admin_manage_personnel' }]] }
         });
         clearSession(userId);
@@ -396,9 +398,9 @@ export async function handleInfoDeepLink(
                 ]
             };
 
-            bot.sendMessage(chatId, textMsg, { parse_mode: 'Markdown', reply_markup: keyboard });
+            bot.sendMessage(chatId, textMsg, { message_thread_id: query.message?.message_thread_id, parse_mode: 'Markdown', reply_markup: keyboard });
         } else {
-            bot.sendMessage(chatId, '❌ Không tìm thấy thông tin nhân sự.');
+            bot.sendMessage(chatId, '❌ Không tìm thấy thông tin nhân sự.', { message_thread_id: query.message?.message_thread_id });
         }
         return true;
     }
@@ -423,6 +425,7 @@ export async function handleInfoMessage(
         if (tempData.promptMessageId) bot.deleteMessage(chatId, tempData.promptMessageId).catch(() => { });
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
         bot.sendMessage(chatId, '✅ Đã hủy thao tác.', {
+            message_thread_id: msg.message_thread_id,
             reply_markup: { inline_keyboard: [[{ text: '🔙 Quay lại Quản lý Nhân sự', callback_data: 'admin_manage_personnel' }]] }
         });
         clearSession(userId);
@@ -435,7 +438,7 @@ export async function handleInfoMessage(
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
         if (text.length < 2 || text.length > 100) {
-            bot.sendMessage(chatId, '⚠️ Họ và Tên phải từ 2 đến 100 ký tự. Vui lòng nhập lại:', { parse_mode: 'Markdown' })
+            bot.sendMessage(chatId, '⚠️ Họ và Tên phải từ 2 đến 100 ký tự. Vui lòng nhập lại:', { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
                 .then(m => {
                     updateSession(userId, { state: 'adding_personnel_name', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
@@ -443,7 +446,7 @@ export async function handleInfoMessage(
         }
 
         tempData.full_name = text;
-        bot.sendMessage(chatId, `Họ và Tên: *${text}*\n\nVui lòng nhập Sinh nhật (VD: 01/01/1990):\n(/cancel để hủy)`, { parse_mode: 'Markdown' })
+        bot.sendMessage(chatId, `Họ và Tên: *${text}*\n\nVui lòng nhập Sinh nhật (VD: 01/01/1990):\n(/cancel để hủy)`, { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
             .then(m => {
                 updateSession(userId, { state: 'adding_personnel_birthday', tempData: { ...tempData, promptMessageId: m.message_id } });
             });
@@ -455,7 +458,7 @@ export async function handleInfoMessage(
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
         if (!/^(\d{2}\/\d{2}\/\d{4})$/.test(text)) {
-            bot.sendMessage(chatId, '⚠️ Sinh nhật không đúng định dạng. Vui lòng nhập lại (VD: 01/01/1990):\n(/cancel để hủy)', { parse_mode: 'Markdown' })
+            bot.sendMessage(chatId, '⚠️ Sinh nhật không đúng định dạng. Vui lòng nhập lại (VD: 01/01/1990):\n(/cancel để hủy)', { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
                 .then(m => {
                     updateSession(userId, { state: 'adding_personnel_birthday', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
@@ -463,7 +466,7 @@ export async function handleInfoMessage(
         }
 
         tempData.birthday = text;
-        bot.sendMessage(chatId, `Sinh nhật: *${tempData.birthday}*\n\nVui lòng nhập Vị trí/Chức vụ:\n(/cancel để hủy)`, { parse_mode: 'Markdown' })
+        bot.sendMessage(chatId, `Sinh nhật: *${tempData.birthday}*\n\nVui lòng nhập Vị trí/Chức vụ:\n(/cancel để hủy)`, { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
             .then(m => {
                 updateSession(userId, { state: 'adding_personnel_position', tempData: { ...tempData, promptMessageId: m.message_id } });
             });
@@ -475,7 +478,7 @@ export async function handleInfoMessage(
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
         if (text.length > 100 || text.length < 2) {
-            bot.sendMessage(chatId, '⚠️ Vị trí/Chức vụ phải từ 2 đến 100 ký tự. Vui lòng nhập lại:\n(/cancel để hủy)', { parse_mode: 'Markdown' })
+            bot.sendMessage(chatId, '⚠️ Vị trí/Chức vụ phải từ 2 đến 100 ký tự. Vui lòng nhập lại:\n(/cancel để hủy)', { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
                 .then(m => {
                     updateSession(userId, { state: 'adding_personnel_position', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
@@ -483,7 +486,7 @@ export async function handleInfoMessage(
         }
 
         tempData.position = text;
-        bot.sendMessage(chatId, `Vị trí: *${tempData.position}*\n\nVui lòng nhập Số điện thoại:\n(/cancel để hủy)`, { parse_mode: 'Markdown' })
+        bot.sendMessage(chatId, `Vị trí: *${tempData.position}*\n\nVui lòng nhập Số điện thoại:\n(/cancel để hủy)`, { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
             .then(m => {
                 updateSession(userId, { state: 'adding_personnel_phone', tempData: { ...tempData, promptMessageId: m.message_id } });
             });
@@ -495,7 +498,7 @@ export async function handleInfoMessage(
         bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
         if (!/^(\+?\d{9,15})$/.test(text.replace(/\s+/g, ''))) {
-            bot.sendMessage(chatId, '⚠️ Số điện thoại không hợp lệ. Vui lòng nhập lại:\n(/cancel để hủy)', { parse_mode: 'Markdown' })
+            bot.sendMessage(chatId, '⚠️ Số điện thoại không hợp lệ. Vui lòng nhập lại:\n(/cancel để hủy)', { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
                 .then(m => {
                     updateSession(userId, { state: 'adding_personnel_phone', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
@@ -503,7 +506,7 @@ export async function handleInfoMessage(
         }
 
         tempData.phone = text;
-        bot.sendMessage(chatId, `Số điện thoại: *${tempData.phone}*\n\nVui lòng nhập Email:\n(/cancel để hủy, /skip để bỏ qua)`, { parse_mode: 'Markdown' })
+        bot.sendMessage(chatId, `Số điện thoại: *${tempData.phone}*\n\nVui lòng nhập Email:\n(/cancel để hủy, /skip để bỏ qua)`, { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
             .then(m => {
                 updateSession(userId, { state: 'adding_personnel_email', tempData: { ...tempData, promptMessageId: m.message_id } });
             });
@@ -516,7 +519,7 @@ export async function handleInfoMessage(
 
         if (text !== '/skip') {
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
-                bot.sendMessage(chatId, '⚠️ Email không hợp lệ. Vui lòng nhập lại:\n(/cancel để hủy, /skip để bỏ qua)', { parse_mode: 'Markdown' })
+                bot.sendMessage(chatId, '⚠️ Email không hợp lệ. Vui lòng nhập lại:\n(/cancel để hủy, /skip để bỏ qua)', { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown' })
                     .then(m => {
                         updateSession(userId, { state: 'adding_personnel_email', tempData: { ...tempData, promptMessageId: m.message_id } });
                     });
@@ -535,6 +538,7 @@ export async function handleInfoMessage(
             );
 
             bot.sendMessage(chatId, '✅ Đã thêm nhân sự thành công!', {
+                message_thread_id: msg.message_thread_id,
                 reply_markup: { inline_keyboard: [[{ text: '🔙 Quay lại Quản lý Nhân sự', callback_data: 'admin_manage_personnel' }]] }
             });
             clearSession(userId);
@@ -542,7 +546,7 @@ export async function handleInfoMessage(
             broadcastPersonnelUpdate(bot);
         } catch (err) {
             console.error(err);
-            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi lưu dữ liệu.');
+            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi lưu dữ liệu.', { message_thread_id: msg.message_thread_id });
             clearSession(userId);
         }
         return true;
@@ -551,7 +555,7 @@ export async function handleInfoMessage(
     // EDITING FLOW
     if (state.startsWith('editing_personnel_')) {
         if (!tempData.profileId) {
-            bot.sendMessage(chatId, '❌ Phiên làm việc đã hết hạn hoặc bị lỗi. Vui lòng thử lại.');
+            bot.sendMessage(chatId, '❌ Phiên làm việc đã hết hạn hoặc bị lỗi. Vui lòng thử lại.', { message_thread_id: msg.message_thread_id });
             clearSession(userId);
             return true;
         }
@@ -566,7 +570,7 @@ export async function handleInfoMessage(
 
         if (state === 'editing_personnel_name') {
             if (text.length < 2 || text.length > 100) {
-                bot.sendMessage(chatId, '⚠️ Họ và Tên phải từ 2 đến 100 ký tự. Vui lòng nhập lại:').then(m => {
+                bot.sendMessage(chatId, '⚠️ Họ và Tên phải từ 2 đến 100 ký tự. Vui lòng nhập lại:', { message_thread_id: msg.message_thread_id }).then(m => {
                     updateSession(userId, { state: 'editing_personnel_name', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
                 return true;
@@ -574,7 +578,7 @@ export async function handleInfoMessage(
             updateQuery = 'UPDATE user_profiles SET full_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2';
         } else if (state === 'editing_personnel_birthday') {
             if (!/^(\d{2}\/\d{2}\/\d{4})$/.test(text)) {
-                bot.sendMessage(chatId, '⚠️ Sinh nhật không đúng định dạng. Vui lòng nhập lại (VD: 01/01/1990):').then(m => {
+                bot.sendMessage(chatId, '⚠️ Sinh nhật không đúng định dạng. Vui lòng nhập lại (VD: 01/01/1990):', { message_thread_id: msg.message_thread_id }).then(m => {
                     updateSession(userId, { state: 'editing_personnel_birthday', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
                 return true;
@@ -582,7 +586,7 @@ export async function handleInfoMessage(
             updateQuery = 'UPDATE user_profiles SET birthday = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2';
         } else if (state === 'editing_personnel_position') {
             if (text.length > 100) {
-                bot.sendMessage(chatId, '⚠️ Vị trí/Chức vụ không được vượt quá 100 ký tự. Vui lòng nhập lại:').then(m => {
+                bot.sendMessage(chatId, '⚠️ Vị trí/Chức vụ không được vượt quá 100 ký tự. Vui lòng nhập lại:', { message_thread_id: msg.message_thread_id }).then(m => {
                     updateSession(userId, { state: 'editing_personnel_position', tempData: { ...tempData, promptMessageId: m.message_id } });
                 });
                 return true;
@@ -591,6 +595,7 @@ export async function handleInfoMessage(
         } else if (state === 'editing_personnel_phone') {
             if (!/^(\+?\d{9,15})$/.test(text.replace(/\s+/g, ''))) {
                 bot.sendMessage(chatId, '⚠️ Số điện thoại không hợp lệ. Vui lòng nhập lại:', {
+                    message_thread_id: msg.message_thread_id,
                     reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: `info_edit_cancel_${tempData.profileId}` }]] }
                 }).then(m => {
                     updateSession(userId, { state: 'editing_personnel_phone', tempData: { ...tempData, promptMessageId: m.message_id } });
@@ -601,6 +606,7 @@ export async function handleInfoMessage(
         } else if (state === 'editing_personnel_email') {
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
                 bot.sendMessage(chatId, '⚠️ Email không hợp lệ. Vui lòng nhập lại:', {
+                    message_thread_id: msg.message_thread_id,
                     reply_markup: { inline_keyboard: [[{ text: '❌ Hủy', callback_data: `info_edit_cancel_${tempData.profileId}` }]] }
                 }).then(m => {
                     updateSession(userId, { state: 'editing_personnel_email', tempData: { ...tempData, promptMessageId: m.message_id } });
@@ -613,7 +619,7 @@ export async function handleInfoMessage(
         try {
             await db.query(updateQuery, [updateValue, tempData.profileId]);
 
-            bot.sendMessage(chatId, '✅ Đã cập nhật thông tin nhân sự thành công!').then(m => {
+            bot.sendMessage(chatId, '✅ Đã cập nhật thông tin nhân sự thành công!', { message_thread_id: msg.message_thread_id }).then(m => {
                 setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 3000);
             });
 
@@ -641,7 +647,7 @@ export async function handleInfoMessage(
                     ]
                 };
 
-                bot.sendMessage(chatId, textMsg, { parse_mode: 'Markdown', reply_markup: keyboard }).then(m => {
+                bot.sendMessage(chatId, textMsg, { message_thread_id: msg.message_thread_id, parse_mode: 'Markdown', reply_markup: keyboard }).then(m => {
                     setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 15000);
                 });
             }
@@ -650,7 +656,7 @@ export async function handleInfoMessage(
             broadcastPersonnelUpdate(bot);
         } catch (err) {
             console.error(err);
-            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi lưu dữ liệu.');
+            bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi lưu dữ liệu.', { message_thread_id: msg.message_thread_id });
         }
         clearSession(userId);
         return true;

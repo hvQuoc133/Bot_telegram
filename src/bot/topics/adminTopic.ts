@@ -474,6 +474,7 @@ export async function handleAdminCallback(
             [{ text: '✅ Đề xuất đã duyệt', callback_data: 'prop_admin_filter_APPROVED' }],
             [{ text: '❌ Đề xuất đã từ chối', callback_data: 'prop_admin_filter_REJECTED' }],
             [{ text: '👤 Lịch sử theo người dùng', callback_data: 'prop_admin_filter_user' }],
+            [{ text: '📂 Quản lý Danh mục Đề xuất', callback_data: 'prop_admin_manage_cats' }],
             [{ text: '🔙 Quay lại', callback_data: 'admin_dashboard' }]
         ];
         bot.editMessageText(text, {

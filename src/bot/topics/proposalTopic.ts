@@ -2,6 +2,7 @@ import TelegramBot, { InlineKeyboardButton } from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { updateSession, clearSession, getSession } from '../services/sessionManager';
 import { botUsername } from '../botInstance';
+import { formatVNTime, formatVNDate, formatVNDateCode } from '../utils/dateUtils';
 
 export async function handleProposalDeepLink(
     bot: TelegramBot,
@@ -15,12 +16,18 @@ export async function handleProposalDeepLink(
     if (!userId) return false;
 
     if (param === 'create_proposal') {
-        const keyboard: InlineKeyboardButton[][] = [
-            [{ text: '💰 Đề xuất chi phí', callback_data: 'prop_type_cost' }],
-            [{ text: '📝 Đề xuất công việc', callback_data: 'prop_type_work' }],
-            [{ text: '⚖️ Đề xuất nội quy - chính sách', callback_data: 'prop_type_policy' }],
-            [{ text: '🛠 Đề xuất công cụ - thiết bị', callback_data: 'prop_type_tool' }]
-        ];
+        const res = await db.query('SELECT * FROM proposal_categories ORDER BY id ASC');
+        const categories = res.rows;
+
+        const keyboard: InlineKeyboardButton[][] = [];
+        if (categories.length > 0) {
+            categories.forEach(cat => {
+                keyboard.push([{ text: `📝 ${cat.name}`, callback_data: `prop_type_${cat.id}` }]);
+            });
+        } else {
+            bot.sendMessage(chatId, '⚠️ Hiện tại chưa có danh mục đề xuất nào. Vui lòng liên hệ Admin.');
+            return true;
+        }
 
         bot.sendMessage(chatId, '📝 *TẠO ĐỀ XUẤT MỚI*\n\nBước 1: Vui lòng chọn loại đề xuất bạn muốn tạo:', {
             parse_mode: 'Markdown',
@@ -36,7 +43,7 @@ export async function handleProposalDeepLink(
 
     if (param === 'my_proposals') {
         const res = await db.query(
-            'SELECT id, proposal_code, type, status, created_at FROM proposals WHERE user_id = $1 ORDER BY created_at DESC LIMIT 10',
+            'SELECT DISTINCT EXTRACT(YEAR FROM created_at) as year FROM proposals WHERE user_id = $1 ORDER BY year DESC',
             [userId]
         );
 
@@ -45,26 +52,14 @@ export async function handleProposalDeepLink(
             return true;
         }
 
-        const keyboard = res.rows.map(r => {
-            let statusEmoji = '⏳';
-            if (r.status === 'APPROVED') statusEmoji = '✅';
-            if (r.status === 'REJECTED') statusEmoji = '❌';
-
-            let typeName = '';
-            if (r.type === 'cost') typeName = 'Chi phí';
-            if (r.type === 'work') typeName = 'Công việc';
-            if (r.type === 'policy') typeName = 'Nội quy';
-            if (r.type === 'tool') typeName = 'Công cụ';
-
-            return [{
-                text: `${statusEmoji} [${r.proposal_code}] ${typeName} (${new Date(r.created_at).toLocaleDateString('vi-VN')})`,
-                callback_data: `prop_view_${r.id}`
-            }];
-        });
+        const keyboard = res.rows.map(r => [{
+            text: `📅 Năm ${r.year}`,
+            callback_data: `prop_my_year_${r.year}`
+        }]);
 
         keyboard.push([{ text: '🔙 Quay lại Menu', callback_data: 'user_dashboard' }]);
 
-        bot.sendMessage(chatId, '📋 *LỊCH SỬ ĐỀ XUẤT CỦA BẠN:*', {
+        bot.sendMessage(chatId, '📋 *CHỌN NĂM ĐỀ XUẤT:*', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: keyboard }
         });
@@ -107,80 +102,118 @@ export async function handleProposalState(
     if (!userId) return false;
 
     switch (session.state) {
+        case 'adding_prop_cat':
+            if (text === '/cancel') {
+                bot.sendMessage(chatId, '❌ Đã hủy thêm danh mục.');
+                clearSession(userId);
+                return true;
+            }
+            try {
+                await db.query('INSERT INTO proposal_categories (name, created_by) VALUES ($1, $2)', [text, userId]);
+                bot.sendMessage(chatId, `✅ Đã thêm danh mục: *${text}*`, { parse_mode: 'Markdown' });
+                clearSession(userId);
+            } catch (err) {
+                console.error('Error adding category:', err);
+                bot.sendMessage(chatId, '❌ Có lỗi xảy ra khi thêm danh mục.');
+            }
+            return true;
+
         case 'creating_proposal_content':
             if (session.tempData.promptMessageId) bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
-            const keyboardTime = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_time' }]];
-            bot.sendMessage(chatId, '🕒 *Bước 3: Thời gian áp dụng*\n\nNhập thời gian áp dụng (Định dạng: DD/MM/YYYY, ví dụ: 30/04/2024) hoặc bấm Bỏ qua:', {
+            const keyboardTime = [[{ text: '⏭ Bỏ qua (Lấy thời gian hiện tại)', callback_data: 'prop_skip_time' }]];
+            bot.sendMessage(chatId, '🕒 *Bước 3: Thời gian bắt đầu*\n\nNhập thời gian bắt đầu (Định dạng: DD/MM/YYYY - HH:mm) hoặc bấm Bỏ qua:', {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: keyboardTime }
             }).then(m => {
                 updateSession(userId, {
-                    state: 'creating_proposal_time',
+                    state: 'creating_proposal_start_time',
                     tempData: { ...session.tempData, content: text, promptMessageId: m.message_id }
                 });
             });
             return true;
 
-        case 'creating_proposal_time':
+        case 'creating_proposal_start_time':
             if (session.tempData.promptMessageId) bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
-            let applyTimeDate: Date | null = null;
-            let formattedDate = text;
-            const parts = text.split(/[\s/:-]+/);
+            let startTimeDate: Date | null = null;
+            const startParts = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*-\s*(\d{1,2}):(\d{1,2})/);
 
-            if (parts.length >= 3) {
-                const day = parseInt(parts[0]);
-                const month = parseInt(parts[1]) - 1;
-                const year = parseInt(parts[2]);
-                applyTimeDate = new Date(year, month, day);
-
-                // Strict date validation (e.g., prevent 30/02/2024)
-                if (applyTimeDate.getDate() !== day || applyTimeDate.getMonth() !== month || applyTimeDate.getFullYear() !== year) {
-                    applyTimeDate = null; // Invalid date
-                }
+            if (startParts) {
+                const day = parseInt(startParts[1], 10);
+                const month = parseInt(startParts[2], 10) - 1;
+                const year = parseInt(startParts[3], 10);
+                const hour = parseInt(startParts[4], 10);
+                const minute = parseInt(startParts[5], 10);
+                // Convert Vietnam time (UTC+7) to UTC
+                startTimeDate = new Date(Date.UTC(year, month, day, hour - 7, minute, 0));
             }
 
-            if (!applyTimeDate || isNaN(applyTimeDate.getTime())) {
-                const keyboardTime = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_time' }]];
-                bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY) hoặc bấm Bỏ qua:', {
+            if (!startTimeDate || isNaN(startTimeDate.getTime())) {
+                const keyboardTime = [[{ text: '⏭ Bỏ qua (Lấy thời gian hiện tại)', callback_data: 'prop_skip_time' }]];
+                bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY - HH:mm) hoặc bấm Bỏ qua:', {
                     reply_markup: { inline_keyboard: keyboardTime }
                 }).then(m => {
                     updateSession(userId, {
-                        state: 'creating_proposal_time',
+                        state: 'creating_proposal_start_time',
                         tempData: { ...session.tempData, promptMessageId: m.message_id }
                     });
                 });
                 return true;
             }
 
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            if (applyTimeDate < today) {
-                const keyboardTime = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_time' }]];
-                bot.sendMessage(chatId, '⚠️ Lỗi: Không thể chọn ngày trong quá khứ. Vui lòng nhập lại (DD/MM/YYYY) hoặc bấm Bỏ qua:', {
+            const keyboardEndTime = [[{ text: '⏭ Bỏ qua (Không có kết thúc)', callback_data: 'prop_skip_end_time' }]];
+            bot.sendMessage(chatId, '🕒 *Bước 4: Thời gian kết thúc*\n\nNhập thời gian kết thúc (Định dạng: DD/MM/YYYY - HH:mm) hoặc bấm Bỏ qua:', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: keyboardEndTime }
+            }).then(m => {
+                updateSession(userId, {
+                    state: 'creating_proposal_end_time',
+                    tempData: { ...session.tempData, start_time: startTimeDate.toISOString(), promptMessageId: m.message_id }
+                });
+            });
+            return true;
+
+        case 'creating_proposal_end_time':
+            if (session.tempData.promptMessageId) bot.deleteMessage(chatId, session.tempData.promptMessageId).catch(() => { });
+            bot.deleteMessage(chatId, msg.message_id).catch(() => { });
+
+            let endTimeDate: Date | null = null;
+            const endParts = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*-\s*(\d{1,2}):(\d{1,2})/);
+
+            if (endParts) {
+                const day = parseInt(endParts[1], 10);
+                const month = parseInt(endParts[2], 10) - 1;
+                const year = parseInt(endParts[3], 10);
+                const hour = parseInt(endParts[4], 10);
+                const minute = parseInt(endParts[5], 10);
+                // Convert Vietnam time (UTC+7) to UTC
+                endTimeDate = new Date(Date.UTC(year, month, day, hour - 7, minute, 0));
+            }
+
+            if (!endTimeDate || isNaN(endTimeDate.getTime())) {
+                const keyboardTime = [[{ text: '⏭ Bỏ qua (Không có kết thúc)', callback_data: 'prop_skip_end_time' }]];
+                bot.sendMessage(chatId, '⚠️ Lỗi: Thời gian không hợp lệ. Vui lòng nhập lại (DD/MM/YYYY - HH:mm) hoặc bấm Bỏ qua:', {
                     reply_markup: { inline_keyboard: keyboardTime }
                 }).then(m => {
                     updateSession(userId, {
-                        state: 'creating_proposal_time',
+                        state: 'creating_proposal_end_time',
                         tempData: { ...session.tempData, promptMessageId: m.message_id }
                     });
                 });
                 return true;
             }
-
-            formattedDate = `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
 
             const keyboardCost = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_cost' }]];
-            bot.sendMessage(chatId, '💰 *Bước 4: Dự trù chi phí*\n\nNhập dự trù chi phí (nếu có) hoặc bấm Bỏ qua (ví dụ: 1.500.000 vnd hoặc $77):', {
+            bot.sendMessage(chatId, '💰 *Bước 5: Dự trù chi phí*\n\nNhập dự trù chi phí (nếu có) hoặc bấm Bỏ qua:', {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: keyboardCost }
             }).then(m => {
                 updateSession(userId, {
                     state: 'creating_proposal_cost',
-                    tempData: { ...session.tempData, apply_time: formattedDate, promptMessageId: m.message_id }
+                    tempData: { ...session.tempData, end_time: endTimeDate.toISOString(), promptMessageId: m.message_id }
                 });
             });
             return true;
@@ -190,7 +223,7 @@ export async function handleProposalState(
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
             const keyboardFile = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_file' }]];
-            bot.sendMessage(chatId, '📎 *Bước 5: File đính kèm*\n\nGửi 1 file/ảnh đính kèm (báo giá, tài liệu...) hoặc bấm Bỏ qua:', {
+            bot.sendMessage(chatId, '📎 *Bước 6: File đính kèm*\n\nGửi 1 file/ảnh đính kèm (báo giá, tài liệu...) hoặc bấm Bỏ qua:', {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: keyboardFile }
             }).then(m => {
@@ -304,12 +337,12 @@ export async function handleProposalState(
                     const userRes = await db.query('SELECT first_name, last_name, username FROM users WHERE id = $1', [prop.user_id]);
                     const u = userRes.rows[0];
                     const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Unknown';
-                    const typeName = getProposalTypeName(prop.type);
+                    const typeName = prop.type;
 
                     let reportText = `📝 *ĐỀ XUẤT MỚI: ${prop.proposal_code}*\n\n`;
                     reportText += `👤 *Người đề xuất:* ${fullName} ${u.username ? `(@${u.username})` : ''}\n`;
                     reportText += `🏷 *Loại:* ${typeName}\n`;
-                    reportText += `📅 *Ngày tạo:* ${new Date(prop.created_at).toLocaleString('vi-VN')}\n`;
+                    reportText += `📅 *Ngày tạo:* ${formatVNTime(prop.created_at)}\n`;
                     reportText += `*(Đã chỉnh sửa)*\n\n`;
                     reportText += `📄 *Nội dung:*\n${prop.content}\n\n`;
                     if (prop.apply_time) reportText += `🕒 *Thời gian áp dụng:* ${prop.apply_time}\n`;
@@ -378,20 +411,20 @@ export async function handleProposalState(
                 const prop = propRes.rows[0];
 
                 // Notify user
-                const typeName = getProposalTypeName(prop.type);
+                const typeName = prop.type;
                 bot.sendMessage(prop.user_id, `❌ *ĐỀ XUẤT BỊ TỪ CHỐI*\n\nĐề xuất [${prop.proposal_code}] - ${typeName} của bạn đã bị từ chối.\n\n*Lý do:* ${rejectReason}`, { parse_mode: 'Markdown' });
 
                 // Update group message
                 if (prop.message_id && prop.chat_id) {
                     const adminName = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || msg.from?.username || 'Admin';
-                    const timeStr = new Date().toLocaleString('vi-VN');
+                    const timeStr = formatVNTime(new Date());
 
                     const fullName = [prop.first_name, prop.last_name].filter(Boolean).join(' ') || prop.username || 'Nhân viên';
 
                     let updatedText = `📝 *ĐỀ XUẤT MỚI: ${prop.proposal_code}*\n\n`;
                     updatedText += `👤 *Người đề xuất:* ${fullName}\n`;
                     updatedText += `🏷 *Loại:* ${typeName}\n`;
-                    updatedText += `📅 *Ngày tạo:* ${new Date(prop.created_at).toLocaleString('vi-VN')}\n\n`;
+                    updatedText += `📅 *Ngày tạo:* ${formatVNTime(prop.created_at)}\n\n`;
                     updatedText += `📄 *Nội dung:*\n${prop.content}\n\n`;
                     if (prop.apply_time) updatedText += `🕒 *Thời gian áp dụng:* ${prop.apply_time}\n`;
                     if (prop.cost) updatedText += `💰 *Dự trù chi phí:* ${prop.cost}\n\n`;
@@ -444,14 +477,22 @@ export async function handleProposalCallback(
     if (!chatId) return false;
 
     if (data.startsWith('prop_type_')) {
-        const type = data.replace('prop_type_', '');
+        const typeId = data.replace('prop_type_', '');
         bot.deleteMessage(chatId, messageId!).catch(() => { });
+
+        let typeName = 'Khác';
+        try {
+            const res = await db.query('SELECT name FROM proposal_categories WHERE id = $1', [typeId]);
+            if (res.rows.length > 0) {
+                typeName = res.rows[0].name;
+            }
+        } catch (e) { }
 
         bot.sendMessage(chatId, '✍️ *Bước 2: Nội dung chi tiết*\n\nVui lòng nhập nội dung đề xuất của bạn:', { parse_mode: 'Markdown' })
             .then(m => {
                 updateSession(userId, {
                     state: 'creating_proposal_content',
-                    tempData: { type, promptMessageId: m.message_id }
+                    tempData: { type: typeName, promptMessageId: m.message_id }
                 });
             });
         bot.answerCallbackQuery(query.id);
@@ -460,14 +501,33 @@ export async function handleProposalCallback(
 
     if (data === 'prop_skip_time') {
         bot.deleteMessage(chatId, messageId!).catch(() => { });
+
+        const startTimeDate = new Date();
+
+        const keyboardEndTime = [[{ text: '⏭ Bỏ qua (Không có kết thúc)', callback_data: 'prop_skip_end_time' }]];
+        bot.sendMessage(chatId, '🕒 *Bước 4: Thời gian kết thúc*\n\nNhập thời gian kết thúc (Định dạng: DD/MM/YYYY - HH:mm) hoặc bấm Bỏ qua:', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboardEndTime }
+        }).then(m => {
+            updateSession(userId, {
+                state: 'creating_proposal_end_time',
+                tempData: { ...session.tempData, start_time: startTimeDate.toISOString(), promptMessageId: m.message_id }
+            });
+        });
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data === 'prop_skip_end_time') {
+        bot.deleteMessage(chatId, messageId!).catch(() => { });
         const keyboardCost = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_cost' }]];
-        bot.sendMessage(chatId, '💰 *Bước 4: Dự trù chi phí*\n\nNhập dự trù chi phí (nếu có) hoặc bấm Bỏ qua (ví dụ: 1.500.000 vnd hoặc $77):', {
+        bot.sendMessage(chatId, '💰 *Bước 5: Dự trù chi phí*\n\nNhập dự trù chi phí (nếu có) hoặc bấm Bỏ qua:', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: keyboardCost }
         }).then(m => {
             updateSession(userId, {
                 state: 'creating_proposal_cost',
-                tempData: { ...session.tempData, apply_time: null, promptMessageId: m.message_id }
+                tempData: { ...session.tempData, end_time: null, promptMessageId: m.message_id }
             });
         });
         bot.answerCallbackQuery(query.id);
@@ -477,7 +537,7 @@ export async function handleProposalCallback(
     if (data === 'prop_skip_cost') {
         bot.deleteMessage(chatId, messageId!).catch(() => { });
         const keyboardFile = [[{ text: '⏭ Bỏ qua', callback_data: 'prop_skip_file' }]];
-        bot.sendMessage(chatId, '📎 *Bước 5: File đính kèm*\n\nGửi 1 file/ảnh đính kèm (báo giá, tài liệu...) hoặc bấm Bỏ qua:', {
+        bot.sendMessage(chatId, '📎 *Bước 6: File đính kèm*\n\nGửi 1 file/ảnh đính kèm (báo giá, tài liệu...) hoặc bấm Bỏ qua:', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: keyboardFile }
         }).then(m => {
@@ -518,29 +578,38 @@ export async function handleProposalCallback(
             const targetTopicId = groupRes.rows[0].topic_id;
 
             // Generate Proposal Code
-            const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const dateStr = formatVNDateCode(new Date());
             const countRes = await db.query("SELECT COUNT(*) FROM proposals WHERE created_at::date = CURRENT_DATE");
             const count = parseInt(countRes.rows[0].count) + 1;
             const proposalCode = `DX-${dateStr}-${count.toString().padStart(3, '0')}`;
 
-            const { type, content, apply_time, cost, file_id, file_type } = session.tempData;
+            const { type, content, start_time, end_time, cost, file_id, file_type } = session.tempData;
             const fullName = [query.from.first_name, query.from.last_name].filter(Boolean).join(' ') || query.from.username || 'Unknown';
 
             // Insert to DB
             const insertRes = await db.query(`
-        INSERT INTO proposals (proposal_code, user_id, chat_id, topic_id, type, content, apply_time, cost, file_id, file_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
-      `, [proposalCode, userId, targetChatId, targetTopicId, type, content, apply_time, cost, file_id, file_type]);
+        INSERT INTO proposals (proposal_code, user_id, chat_id, topic_id, type, content, start_time, end_time, cost, file_id, file_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
+      `, [proposalCode, userId, targetChatId, targetTopicId, type, content, start_time, end_time, cost, file_id, file_type]);
 
             const propId = insertRes.rows[0].id;
-            const typeName = getProposalTypeName(type);
+            const typeName = type;
 
             let reportText = `📝 *ĐỀ XUẤT MỚI: ${proposalCode}*\n\n`;
             reportText += `👤 *Người đề xuất:* ${fullName} ${query.from.username ? `(@${query.from.username})` : ''}\n`;
             reportText += `🏷 *Loại:* ${typeName}\n`;
-            reportText += `📅 *Ngày tạo:* ${new Date().toLocaleString('vi-VN')}\n\n`;
+            reportText += `📅 *Ngày tạo:* ${formatVNTime(new Date())}\n\n`;
             reportText += `📄 *Nội dung:*\n${content}\n\n`;
-            if (apply_time) reportText += `🕒 *Thời gian áp dụng:* ${apply_time}\n`;
+
+            if (start_time) {
+                const startStr = formatVNTime(start_time);
+                reportText += `🕒 *Bắt đầu:* ${startStr}\n`;
+            }
+            if (end_time) {
+                const endStr = formatVNTime(end_time);
+                reportText += `🕒 *Kết thúc:* ${endStr}\n`;
+            }
+
             if (cost) reportText += `💰 *Dự trù chi phí:* ${cost}\n`;
 
             const keyboard: InlineKeyboardButton[][] = [
@@ -608,18 +677,18 @@ export async function handleProposalCallback(
             const prop = propRes.rows[0];
 
             // Notify user
-            const typeName = getProposalTypeName(prop.type);
+            const typeName = prop.type;
             bot.sendMessage(prop.user_id, `🎉 *ĐỀ XUẤT ĐÃ ĐƯỢC DUYỆT*\n\nĐề xuất [${prop.proposal_code}] - ${typeName} của bạn đã được duyệt!`, { parse_mode: 'Markdown' });
 
             // Update group message
             const adminName = [query.from.first_name, query.from.last_name].filter(Boolean).join(' ') || query.from.username || 'Admin';
-            const timeStr = new Date().toLocaleString('vi-VN');
+            const timeStr = formatVNTime(new Date());
             const fullName = [prop.first_name, prop.last_name].filter(Boolean).join(' ') || prop.username || 'Nhân viên';
 
             let updatedText = `📝 *ĐỀ XUẤT MỚI: ${prop.proposal_code}*\n\n`;
             updatedText += `👤 *Người đề xuất:* ${fullName}\n`;
             updatedText += `🏷 *Loại:* ${typeName}\n`;
-            updatedText += `📅 *Ngày tạo:* ${new Date(prop.created_at).toLocaleString('vi-VN')}\n\n`;
+            updatedText += `📅 *Ngày tạo:* ${formatVNTime(prop.created_at)}\n\n`;
             updatedText += `📄 *Nội dung:*\n${prop.content}\n\n`;
             if (prop.apply_time) updatedText += `🕒 *Thời gian áp dụng:* ${prop.apply_time}\n`;
             if (prop.cost) updatedText += `💰 *Dự trù chi phí:* ${prop.cost}\n\n`;
@@ -710,6 +779,65 @@ export async function handleProposalCallback(
         return true;
     }
 
+    if (data.startsWith('prop_my_year_')) {
+        const year = parseInt(data.replace('prop_my_year_', ''));
+        const res = await db.query(
+            'SELECT DISTINCT EXTRACT(MONTH FROM created_at) as month FROM proposals WHERE user_id = $1 AND EXTRACT(YEAR FROM created_at) = $2 ORDER BY month DESC',
+            [userId, year]
+        );
+
+        const keyboard = res.rows.map(r => [{
+            text: `📆 Tháng ${r.month} năm ${year}`,
+            callback_data: `prop_my_month_${year}_${r.month}`
+        }]);
+
+        keyboard.push([{ text: '🔙 Quay lại', callback_data: 'user_dashboard' }]);
+
+        bot.editMessageText(`📋 *CHỌN THÁNG ĐỀ XUẤT (NĂM ${year}):*`, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(() => { });
+
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data.startsWith('prop_my_month_')) {
+        const parts = data.split('_');
+        const year = parseInt(parts[3]);
+        const month = parseInt(parts[4]);
+
+        const res = await db.query(
+            'SELECT id, proposal_code, type, status, created_at FROM proposals WHERE user_id = $1 AND EXTRACT(YEAR FROM created_at) = $2 AND EXTRACT(MONTH FROM created_at) = $3 ORDER BY created_at DESC',
+            [userId, year, month]
+        );
+
+        const keyboard = res.rows.map(r => {
+            let statusEmoji = '⏳';
+            if (r.status === 'APPROVED') statusEmoji = '✅';
+            if (r.status === 'REJECTED') statusEmoji = '❌';
+
+            return [{
+                text: `${statusEmoji} [${r.proposal_code}] ${r.type} (${formatVNDate(r.created_at)})`,
+                callback_data: `prop_view_${r.id}`
+            }];
+        });
+
+        keyboard.push([{ text: '🔙 Quay lại', callback_data: `prop_my_year_${year}` }]);
+
+        bot.editMessageText(`📋 *DANH SÁCH ĐỀ XUẤT THÁNG ${month}/${year}:*`, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(() => { });
+
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
     if (data.startsWith('prop_view_')) {
         const propId = data.replace('prop_view_', '');
         const propRes = await db.query('SELECT * FROM proposals WHERE id = $1', [propId]);
@@ -720,7 +848,7 @@ export async function handleProposalCallback(
         }
 
         const prop = propRes.rows[0];
-        const typeName = getProposalTypeName(prop.type);
+        const typeName = prop.type;
 
         let statusStr = '⏳ Chờ duyệt';
         if (prop.status === 'APPROVED') statusStr = '✅ Đã duyệt';
@@ -728,10 +856,19 @@ export async function handleProposalCallback(
 
         let text = `📄 *CHI TIẾT ĐỀ XUẤT: ${prop.proposal_code}*\n\n`;
         text += `🏷 *Loại:* ${typeName}\n`;
-        text += `📅 *Ngày tạo:* ${new Date(prop.created_at).toLocaleString('vi-VN')}\n`;
+        text += `📅 *Ngày tạo:* ${formatVNTime(prop.created_at)}\n`;
         text += `📊 *Trạng thái:* ${statusStr}\n\n`;
         text += `📝 *Nội dung:*\n${prop.content}\n\n`;
-        if (prop.apply_time) text += `🕒 *Thời gian áp dụng:* ${prop.apply_time}\n`;
+
+        if (prop.start_time) {
+            const startStr = formatVNTime(prop.start_time);
+            text += `🕒 *Bắt đầu:* ${startStr}\n`;
+        }
+        if (prop.end_time) {
+            const endStr = formatVNTime(prop.end_time);
+            text += `🕒 *Kết thúc:* ${endStr}\n`;
+        }
+
         if (prop.cost) text += `💰 *Dự trù chi phí:* ${prop.cost}\n`;
 
         if (prop.status === 'REJECTED' && prop.reject_reason) {
@@ -923,7 +1060,7 @@ export async function handleProposalCallback(
                     if (r.type === 'policy') typeName = 'Nội quy';
                     if (r.type === 'tool') typeName = 'Công cụ';
                     return [{
-                        text: `${statusEmoji} [${r.proposal_code}] ${typeName} (${new Date(r.created_at).toLocaleDateString('vi-VN')})`,
+                        text: `${statusEmoji} [${r.proposal_code}] ${typeName} (${formatVNDate(r.created_at)})`,
                         callback_data: `prop_view_${r.id}`
                     }];
                 });
@@ -985,7 +1122,7 @@ export async function handleProposalCallback(
         }
 
         const keyboard = res.rows.map(r => [{
-            text: `[${r.proposal_code}] ${getProposalTypeName(r.type)} (${new Date(r.created_at).toLocaleDateString('vi-VN')})`,
+            text: `[${r.proposal_code}] ${r.type} (${formatVNDate(r.created_at)})`,
             callback_data: `prop_view_${r.id}`
         }]);
         keyboard.push([{ text: '🔙 Quay lại', callback_data: 'prop_admin_back' }]);
@@ -1017,7 +1154,7 @@ export async function handleProposalCallback(
             if (r.status === 'APPROVED') statusEmoji = '✅';
             if (r.status === 'REJECTED') statusEmoji = '❌';
             return [{
-                text: `${statusEmoji} [${r.proposal_code}] ${getProposalTypeName(r.type)}`,
+                text: `${statusEmoji} [${r.proposal_code}] ${r.type}`,
                 callback_data: `prop_view_${r.id}`
             }];
         });
@@ -1040,6 +1177,7 @@ export async function handleProposalCallback(
             [{ text: '✅ Đã duyệt', callback_data: 'prop_admin_filter_APPROVED' }],
             [{ text: '❌ Từ chối', callback_data: 'prop_admin_filter_REJECTED' }],
             [{ text: '👤 Lọc theo User', callback_data: 'prop_admin_filter_user' }],
+            [{ text: '📂 Quản lý Danh mục Đề xuất', callback_data: 'prop_admin_manage_cats' }],
             [{ text: '🔙 Quay lại Menu Admin', callback_data: 'admin_dashboard' }]
         ];
 
@@ -1053,26 +1191,102 @@ export async function handleProposalCallback(
         return true;
     }
 
+    if (data === 'prop_admin_manage_cats') {
+        const res = await db.query('SELECT * FROM proposal_categories ORDER BY id ASC');
+        const categories = res.rows;
+
+        let text = '📂 *QUẢN LÝ DANH MỤC ĐỀ XUẤT*\n\n';
+        if (categories.length === 0) {
+            text += 'Chưa có danh mục nào.\n\n';
+        } else {
+            categories.forEach((cat, index) => {
+                text += `${index + 1}. ${cat.name}\n`;
+            });
+            text += '\n';
+        }
+
+        const keyboard: InlineKeyboardButton[][] = [];
+        categories.forEach(cat => {
+            keyboard.push([{ text: `❌ Xóa: ${cat.name}`, callback_data: `prop_cat_del_${cat.id}` }]);
+        });
+        keyboard.push([{ text: '➕ Thêm Danh mục mới', callback_data: 'prop_cat_add' }]);
+        keyboard.push([{ text: '🔙 Quay lại', callback_data: 'prop_admin_back' }]);
+
+        bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(() => { });
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data === 'prop_cat_add') {
+        updateSession(userId, { state: 'adding_prop_cat' });
+        bot.sendMessage(chatId, '➕ *THÊM DANH MỤC ĐỀ XUẤT*\n\nVui lòng nhập tên danh mục mới (hoặc gõ /cancel để hủy):', {
+            parse_mode: 'Markdown'
+        });
+        bot.answerCallbackQuery(query.id);
+        return true;
+    }
+
+    if (data.startsWith('prop_cat_del_')) {
+        const catId = data.replace('prop_cat_del_', '');
+        await db.query('DELETE FROM proposal_categories WHERE id = $1', [catId]);
+        bot.answerCallbackQuery(query.id, { text: '✅ Đã xóa danh mục!', show_alert: true });
+
+        // Refresh list
+        const res = await db.query('SELECT * FROM proposal_categories ORDER BY id ASC');
+        const categories = res.rows;
+
+        let text = '📂 *QUẢN LÝ DANH MỤC ĐỀ XUẤT*\n\n';
+        if (categories.length === 0) {
+            text += 'Chưa có danh mục nào.\n\n';
+        } else {
+            categories.forEach((cat, index) => {
+                text += `${index + 1}. ${cat.name}\n`;
+            });
+            text += '\n';
+        }
+
+        const keyboard: InlineKeyboardButton[][] = [];
+        categories.forEach(cat => {
+            keyboard.push([{ text: `❌ Xóa: ${cat.name}`, callback_data: `prop_cat_del_${cat.id}` }]);
+        });
+        keyboard.push([{ text: '➕ Thêm Danh mục mới', callback_data: 'prop_cat_add' }]);
+        keyboard.push([{ text: '🔙 Quay lại', callback_data: 'prop_admin_back' }]);
+
+        bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch(() => { });
+        return true;
+    }
+
     return false;
 }
 
-function getProposalTypeName(type: string): string {
-    if (type === 'cost') return 'Chi phí';
-    if (type === 'work') return 'Công việc';
-    if (type === 'policy') return 'Nội quy - Chính sách';
-    if (type === 'tool') return 'Công cụ - Thiết bị';
-    return 'Khác';
-}
-
-async function showProposalPreview(bot: TelegramBot, chatId: number, userId: number, data: any, user: TelegramBot.User) {
-    const typeName = getProposalTypeName(data.type);
-    const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Unknown';
+async function showProposalPreview(bot: TelegramBot, chatId: number, userId: number, data: any, user?: TelegramBot.User) {
+    const typeName = data.type;
+    const fullName = user ? ([user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Unknown') : 'Unknown';
 
     let previewText = `📑 *XEM TRƯỚC ĐỀ XUẤT*\n\n`;
     previewText += `👤 *Người đề xuất:* ${fullName}\n`;
     previewText += `🏷 *Loại:* ${typeName}\n\n`;
     previewText += `📝 *Nội dung:*\n${data.content}\n\n`;
-    if (data.apply_time) previewText += `🕒 *Thời gian áp dụng:* ${data.apply_time}\n`;
+
+    if (data.start_time) {
+        const startStr = formatVNTime(data.start_time);
+        previewText += `🕒 *Bắt đầu:* ${startStr}\n`;
+    }
+    if (data.end_time) {
+        const endStr = formatVNTime(data.end_time);
+        previewText += `🕒 *Kết thúc:* ${endStr}\n`;
+    }
+
     if (data.cost) previewText += `💰 *Dự trù chi phí:* ${data.cost}\n`;
     if (data.file_id) previewText += `📎 *Đính kèm:* 1 file\n`;
 

@@ -108,7 +108,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
 
   // 1. Group Chat Logic (Topic-based features)
   if (!isPrivate) {
-    const { feature, targetId } = await getTopicFeature(chatId, topicId);
+    const { feature, targetId } = await getTopicFeature(chatId, topicId || 0);
 
     // Setup topic command for admins (always allowed so they can configure)
     if (await handleSetTopicCommand(bot, msg, command, userRole, isGroupAdmin, replyOptions)) return;
@@ -119,7 +119,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
     }
 
     // Prevent chatting in specific topics
-    if ((feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact' || feature === 'documents') && !text.startsWith('/')) {
+    if ((feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact' || feature === 'documents' || feature === 'proposal') && !text.startsWith('/')) {
       bot.deleteMessage(chatId, msg.message_id).catch(() => { });
       bot.sendMessage(chatId, '⚠️ Topic này không được chat, chỉ được xem và sử dụng lệnh /.', replyOptions)
         .then(m => setTimeout(() => bot.deleteMessage(chatId, m.message_id).catch(() => { }), 5000));
@@ -127,7 +127,7 @@ export async function handleMessage(msg: TelegramBot.Message) {
     }
 
     // If it's a specific topic, auto-delete the user's message after 5s
-    if (feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact' || feature === 'documents') {
+    if (feature === 'regulation' || feature === 'report' || feature === 'information' || feature === 'announcement' || feature === 'tools' || feature === 'contact' || feature === 'documents' || feature === 'proposal') {
       setTimeout(() => bot.deleteMessage(chatId, msg.message_id).catch(() => { }), 5000);
     }
 

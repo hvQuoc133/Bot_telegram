@@ -1,3 +1,4 @@
+import { formatVNDate } from '../utils/dateUtils';
 import TelegramBot, { InlineKeyboardButton } from 'node-telegram-bot-api';
 import { db } from '../../db';
 import { topicCache, roleCache, CACHE_TTL } from '../services/sessionManager';
@@ -180,7 +181,7 @@ export async function handleSetTopicCommand(
 
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const dateStr = now.toLocaleDateString('vi-VN');
+                const dateStr = formatVNDate(now);
                 text = '📜 *DANH SÁCH NỘI QUY CÔNG TY*\n\n' +
                     (regs.rows.length > 0 ? 'Chọn một mục bên dưới để xem chi tiết:' : 'Hiện tại chưa có nội quy nào.') +
                     `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -227,7 +228,7 @@ export async function handleSetTopicCommand(
 
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const dateStr = now.toLocaleDateString('vi-VN');
+                const dateStr = formatVNDate(now);
                 const text = '📇 *DANH SÁCH NHÂN SỰ CÔNG TY*\n\n' +
                     (users.rows.length > 0 ? 'Chọn một thành viên bên dưới để xem thông tin chi tiết:' : 'Hiện tại chưa có thông tin nhân sự nào.') +
                     `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -705,7 +706,7 @@ export async function handleTopicCallback(
 
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const dateStr = now.toLocaleDateString('vi-VN');
+                const dateStr = formatVNDate(now);
                 text = '📜 *DANH SÁCH NỘI QUY CÔNG TY*\n\n' +
                     (regs.rows.length > 0 ? 'Chọn một mục bên dưới để xem chi tiết:' : 'Hiện tại chưa có nội quy nào.') +
                     `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -752,7 +753,7 @@ export async function handleTopicCallback(
 
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const dateStr = now.toLocaleDateString('vi-VN');
+                const dateStr = formatVNDate(now);
                 const text = '📇 *DANH SÁCH NHÂN SỰ CÔNG TY*\n\n' +
                     (users.rows.length > 0 ? 'Chọn một thành viên bên dưới để xem thông tin chi tiết:' : 'Hiện tại chưa có thông tin nhân sự nào.') +
                     `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
@@ -790,7 +791,7 @@ export async function handleTopicCallback(
 
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const dateStr = now.toLocaleDateString('vi-VN');
+                const dateStr = formatVNDate(now);
                 const text = '🛠 *DANH SÁCH CÔNG CỤ*\n\n' +
                     (cats.rows.length > 0 ? 'Chọn một danh mục bên dưới để xem các công cụ:' : 'Hiện tại chưa có công cụ nào.') +
                     `\n\n_(Cập nhật lúc: ${timeStr} - ${dateStr})_`;
